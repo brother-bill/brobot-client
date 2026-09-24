@@ -21,8 +21,9 @@
  * The hook lives exactly as long as the process that installed it. A block
  * cannot outlive its PowerShell: when it exits — duration over, told to stop,
  * killed, or the app crashed — Windows removes the hook. The mic shim restores
- * the mute state itself when it stops, and it stops when told to, when stdin
- * closes, or when it sees the app's process has gone; if it is killed outright,
+ * the mute state itself when it stops, and it stops when told to (a `stop`
+ * line on stdin) or when it sees the app's process has gone (polled once a
+ * second); if it is killed outright,
  * `WindowsHostControl` runs {@link unmuteScript} with the device ids the shim
  * reported. A streamer is never left with a dead Enter key or a muted mic
  * because the app went away.
@@ -90,24 +91,34 @@ public static class Shim {
         Console.Out.Flush();
     }
 
-    // Ends the action early on a "stop" line, when stdin closes, or when the
-    // app that started us is gone - a ban never outlives brobot.
+    // Ends the action early on a "stop" line, or once the app that started
+    // us is gone - a ban never outlives brobot. End-of-input alone is NOT a
+    // stop: if stdin ever reads as closed from the start, every ban would
+    // end the moment it began. The parent check covers a crashed app, and
+    // compares start times so a recycled pid cannot keep a ban alive.
     private static void WatchForStop(int parentPid) {
         Thread reader = new Thread(delegate() {
             try {
                 string line;
                 while ((line = Console.In.ReadLine()) != null) {
-                    if (line.Trim() == "stop") break;
+                    if (line.Trim() == "stop") {
+                        Stop.Set();
+                        return;
+                    }
                 }
             } catch (Exception) { }
-            Stop.Set();
         });
         reader.IsBackground = true;
         reader.Start();
+        DateTime parentStart = DateTime.MinValue;
+        try {
+            parentStart = Process.GetProcessById(parentPid).StartTime;
+        } catch (Exception) { }
         Thread parent = new Thread(delegate() {
             while (!Stop.WaitOne(1000)) {
                 try {
-                    if (Process.GetProcessById(parentPid).HasExited) break;
+                    Process p = Process.GetProcessById(parentPid);
+                    if (p.HasExited || (parentStart != DateTime.MinValue && p.StartTime != parentStart)) break;
                 } catch (Exception) {
                     break;
                 }

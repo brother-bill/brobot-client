@@ -59,9 +59,17 @@ before a pointer bump records a new commit of this repo. `electron-builder`
   only real test.
 
 - **A ban must never outlive the app.** The hook dies with its PowerShell
-  process; the mute shim restores on a `stop` line, on stdin EOF, and when it
-  sees the app's pid gone; and if it is killed anyway the main process runs the
-  unmute shim with the device ids it reported. Keep all three if you touch it.
+  process; the mute shim restores on a `stop` line and when it sees the app's
+  pid gone (start time compared, so a recycled pid does not count); and if it
+  is killed anyway the main process runs the unmute shim with the device ids it
+  reported. Keep all three if you touch it. stdin EOF is deliberately *not* a
+  stop signal: a stdin that reads as closed from the start would end every ban
+  at once.
+
+- **Give every spawned shim's stdin an `error` listener** (`main.ts` does).
+  `release()` writes `stop` to a process that may already have exited; an
+  `EPIPE` on a stream with no listener is an uncaught exception in the main
+  process.
 
 - **Every ban from brobot gets exactly one `*_complete` reply** — declined ones
   too, with an `error`. brobot's vote counter waits for it; without it chat can

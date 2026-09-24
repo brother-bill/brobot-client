@@ -134,8 +134,14 @@ async function bootstrap(): Promise<void> {
             ? new WindowsHostControl({
                   clock: systemClock,
                   parentPid: process.pid,
-                  spawn: (command, args) =>
-                      spawn(command, [...args], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] }),
+                  spawn: (command, args) => {
+                      const child = spawn(command, [...args], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+                      // `release()` may write "stop" to a shim that has just
+                      // exited. EPIPE on a stream nobody listens to is an
+                      // uncaught exception, which would take the app down.
+                      child.stdin.on('error', () => undefined);
+                      return child;
+                  },
               })
             : null;
 
