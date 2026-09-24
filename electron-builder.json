@@ -1,0 +1,35 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "live.brobot.client",
+  "productName": "brobot",
+  "executableName": "brobot",
+  "directories": {
+    "output": "release",
+    "buildResources": "resources"
+  },
+  "files": [
+    "dist/electron/**/*",
+    "dist/renderer/**/*",
+    "package.json"
+  ],
+  "asar": true,
+  "win": {
+    "target": [
+      { "target": "nsis", "arch": ["x64"] },
+      { "target": "portable", "arch": ["x64"] }
+    ]
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "brobot",
+    "runAfterFinish": true,
+    "artifactName": "brobot-setup-${version}.${ext}"
+  },
+  "portable": {
+    "artifactName": "brobot-portable-${version}.${ext}"
+  }
+}

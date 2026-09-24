@@ -1,0 +1,13 @@
+# NOT a workflow. The step to add to singularity's .github/workflows/verify.yml,
+# right after "Typecheck mediabot", now that apps/brobot-client is a workspace
+# member (ticket C1). Fleet agents cannot edit .github/workflows/**, so the
+# operator pastes it in. Same three projects as mediabot, for the same reason:
+# tsconfig.app.json is the renderer only, tsconfig.electron.json is the main
+# process + preload + the shared IPC and wire contracts, and only
+# tsconfig.spec.json compiles the specs.
+
+            - name: Typecheck brobot-client
+              run: |
+                  pnpm exec tsc --noEmit -p apps/brobot-client/tsconfig.app.json
+                  pnpm exec tsc --noEmit -p apps/brobot-client/tsconfig.electron.json
+                  pnpm exec tsc --noEmit -p apps/brobot-client/tsconfig.spec.json

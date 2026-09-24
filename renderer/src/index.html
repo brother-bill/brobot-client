@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en" class="look-material dark">
+    <head>
+        <meta charset="utf-8" />
+        <title>brobot</title>
+        <base href="./" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <!--
+          The window talks to nothing but its own bundle: the socket to brobot
+          lives in the main process, behind the preload bridge. So the policy
+          allows no remote origin at all, and connect-src is 'self' only for
+          the dev server's live reload.
+        -->
+        <meta
+            http-equiv="Content-Security-Policy"
+            content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'"
+        />
+    </head>
+    <body>
+        <app-root></app-root>
+    </body>
+</html>
