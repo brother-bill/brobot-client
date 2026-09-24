@@ -1,0 +1,16 @@
+{
+  "$comment": "brobot-client's identity: a tray utility for a Twitch streamer. The accent is brobot's violet (a nod to Twitch's #9146ff, deliberately not that exact hue — this is not Twitch's app), on a cool near-black ground with a faint violet cast so the window reads as brobot's and not as the budget suite's. `tertiary` is the shared warning orange, used for the paused and attention states. The app runs on a streamer's machine next to OBS and a game, so the typeface is the system UI font (Segoe UI Variable on Windows 11): nothing to load, nothing to bundle, and it matches the tray menu it sits beside. `shape: soft` and `density: comfortable` because it is a settings window read at a glance, not an instrument. Regenerate with `pnpm --filter @singularity/brobot-client run gen:theme`; the WCAG AA gate runs on every pair and refuses to write a failing palette.",
+  "name": "brobot-client",
+  "seed": "#8b5cf6",
+  "tertiary": "#f97316",
+  "secondary": null,
+  "neutral": "#16141c",
+  "contrast": 0,
+  "type": {
+    "display": "'Segoe UI Variable Display', 'Segoe UI', system-ui, -apple-system, sans-serif",
+    "ui": "'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif",
+    "mono": "ui-monospace, 'Cascadia Mono', Consolas, SFMono-Regular, Menlo, monospace"
+  },
+  "shape": "soft",
+  "density": "comfortable"
+}

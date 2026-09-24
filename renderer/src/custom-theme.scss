@@ -1,0 +1,13 @@
+/**
+ * brobot-client theme — material look, dark by default (a streamer's desk is
+ * dark, and so is OBS beside it).
+ *
+ * The palette is generated from `brand.config.json`. Regenerate with:
+ *   pnpm --filter @singularity/brobot-client run gen:theme
+ */
+
+@use '@singularity/ngx-ui/styles/themes/material' as theme;
+@use '@singularity/ngx-ui/styles' as ui;
+@use './generated-colors' as brand;
+
+@include theme.look($brand: brand.$brand);

@@ -1,7 +1,6 @@
-# Ignore
-node_modules/
 dist/
-.idea/
+release/
+.angular/
+node_modules/
+coverage/
 .env
-.eslintcache
-.DS_Store

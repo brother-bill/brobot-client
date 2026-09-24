@@ -1,0 +1,31 @@
+{
+    "extends": "../../tsconfig.angular.json",
+    "compilerOptions": {
+        // shared/streamer-events.ts is brobot's wire contract copied byte for
+        // byte (so the two copies can be diffed), and brobot does not set this
+        // style flag; its dot access on a Record would not compile here.
+        "noPropertyAccessFromIndexSignature": false,
+        "outDir": "../../dist/out-tsc",
+        "types": [],
+        "lib": ["es2023", "dom", "dom.iterable"],
+        "baseUrl": "../../",
+        "moduleResolution": "bundler",
+        "paths": {
+            "@singularity/ngx-ui": ["libs/ngx-ui/src/index.ts"],
+            "@singularity/ngx-ui/styles": ["libs/ngx-ui/src/lib/styles/index.scss"],
+            "@brobot-client/shared": ["apps/brobot-client/shared/index.ts"]
+        }
+    },
+    "angularCompilerOptions": {
+        // NG8113 (unused standalone imports) is only a build warning by default,
+        // and neither eslint nor tsc sees it. Promote it so orphans fail.
+        "extendedDiagnostics": {
+            "checks": {
+                "unusedStandaloneImports": "error"
+            }
+        }
+    },
+    "files": ["renderer/src/main.ts"],
+    "include": ["renderer/src/**/*.d.ts"],
+    "exclude": ["renderer/src/**/*.spec.ts", "shared/**/*.spec.ts"]
+}

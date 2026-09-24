@@ -1,0 +1,24 @@
+{
+    "extends": "../../tsconfig.angular.json",
+    "compilerOptions": {
+        // shared/streamer-events.ts is brobot's wire contract copied byte for
+        // byte (so the two copies can be diffed), and brobot does not set this
+        // style flag; its dot access on a Record would not compile here.
+        "noPropertyAccessFromIndexSignature": false,
+        "outDir": "../../dist/out-tsc",
+        "moduleResolution": "bundler",
+        "types": ["vitest/globals", "node"],
+        "lib": ["es2023", "dom", "dom.iterable"],
+        "baseUrl": "../../",
+        "paths": {
+            "@singularity/ngx-ui": ["libs/ngx-ui/src/index.ts"],
+            "@brobot-client/shared": ["apps/brobot-client/shared/index.ts"]
+        }
+    },
+    "include": [
+        "renderer/src/**/*.spec.ts",
+        "renderer/src/**/*.d.ts",
+        "shared/**/*.ts",
+        "electron/**/*.spec.ts"
+    ]
+}
