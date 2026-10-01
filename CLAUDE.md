@@ -26,8 +26,11 @@ pnpm run build                                    # esbuild main/preload, then n
 ```
 
 `scripts/gate-bumped-submodule.sh` runs the same lint, typechecks and tests
-before a pointer bump records a new commit of this repo. `electron-builder`
-(`pnpm run dist`) is Windows-only and is never run in CI.
+before a pointer bump records a new commit of this repo. The installer is
+built on Linux by `pnpm run dist:linux` (`scripts/dist-linux.sh`: electron-builder
+plus a pinned portable Wine), which singularity's dispatch-only
+`build-brobot-client.yml` runs. `pnpm run dist` is the same build on Windows.
+Neither runs on a push, and neither is in the gate.
 
 ## Layout
 
@@ -41,6 +44,7 @@ before a pointer bump records a new commit of this repo. `electron-builder`
 | `electron/main/services/` | The Electron/Node edges: settings file + `safeStorage`, the `ws` socket |
 | `electron/main/{main,tray}.ts`, `ipc/` | Wiring only |
 | `renderer/` | The window: one page, four panels, a signals store |
+| `scripts/dist-linux.sh` | The Linux cross-build of the installer and the portable exe |
 
 ## The things that will bite you
 

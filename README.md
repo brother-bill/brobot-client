@@ -127,19 +127,35 @@ run — the window says so.
 ### Building the installer
 
 ```bash
-pnpm --filter @singularity/brobot-client run dist
+pnpm --filter @singularity/brobot-client run dist:linux   # on x86_64 Linux or WSL
+pnpm --filter @singularity/brobot-client run dist         # on Windows
 ```
 
-Produces `release/brobot-setup-<version>.exe` (NSIS installer) and
-`release/brobot-portable-<version>.exe`. **Run it on Windows.** electron-builder
-can cross-build Windows targets from Linux only with Wine, and there is no
-Windows CI runner, so **the installer is never built in CI**. What automation
-does check is everything that can break on any OS: `pnpm run build` (esbuild
-main/preload + `ng build`, part of the root `pnpm run build`), and lint, the
-three typechecks and the unit tests, which the submodule pointer-bump gate
-(`scripts/gate-bumped-submodule.sh`) runs before recording a new commit of this
-repository. `pnpm run package` builds the unpacked app in `release/win-unpacked/`
-for a quick look without the installer.
+Either one produces `release/brobot-setup-<version>.exe` (NSIS installer) and
+`release/brobot-portable-<version>.exe`. **The usual way is neither:** dispatch
+singularity's **Build brobot-client installer** workflow
+(`gh workflow run build-brobot-client.yml --ref main`, staged in
+[`deploy/github/build-brobot-client.yml`](../../deploy/github/build-brobot-client.yml)
+until the owner copies it in). It runs `dist:linux` on the self-hosted CI
+runner and attaches both exes to the run for 7 days. It builds the
+brobot-client commit singularity records, so merge a change and let the
+pointer bump land before you dispatch.
+
+`dist:linux` ([`scripts/dist-linux.sh`](scripts/dist-linux.sh)) needs no root
+and no container. electron-builder runs the NSIS installer once to write its
+uninstaller, and that needs Wine, so the script downloads a pinned,
+checksummed, relocatable Wine into `~/.cache/brobot-client` on first use
+(~100 MB download, ~1.4 GB on disk with its prefix). The script's header
+explains why that particular build.
+
+What runs on every change is everything that can break on any OS:
+`pnpm run build` (esbuild main/preload + `ng build`, part of the root
+`pnpm run build`), and lint, the three typechecks and the unit tests, which the
+submodule pointer-bump gate (`scripts/gate-bumped-submodule.sh`) runs before
+recording a new commit of this repository. Nothing compiles the PowerShell
+shim's C# except Windows itself, so install a new build on a Windows PC before
+handing it over. `pnpm run package` builds the unpacked app in
+`release/win-unpacked/` for a quick look without the installer.
 
 The installer is not code-signed, so SmartScreen warns on first run. Signing
 needs a code-signing certificate and `win.signtoolOptions` (or Azure Trusted
