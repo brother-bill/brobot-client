@@ -60,3 +60,16 @@ describe('formatDuration', () => {
         expect(formatDuration(90_000)).toBe('1 min 30 s');
     });
 });
+
+describe('horror frames (SLEEP TIGHT)', () => {
+    it('reads a known effect and who redeemed it', () => {
+        expect(parseStreamerServerEvent('{"type":"horror","effect":"scream","user":"Ash"}')).toEqual({ type: 'horror', effect: 'scream', user: 'Ash' });
+        expect(parseStreamerServerEvent('{"type":"horror","effect":"jumpscare"}')).toEqual({ type: 'horror', effect: 'jumpscare', user: '' });
+    });
+
+    it('ignores unknown effects and malformed frames', () => {
+        expect(parseStreamerServerEvent('{"type":"horror","effect":"format_c"}')).toBeNull();
+        expect(parseStreamerServerEvent('{"type":"horror"}')).toBeNull();
+        expect(parseStreamerServerEvent('{"type":"horror","effect":7}')).toBeNull();
+    });
+});

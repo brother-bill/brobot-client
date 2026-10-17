@@ -26,6 +26,7 @@ import type { Clock } from './clock';
 import { CommandRunner } from './command-runner';
 import { ConnectionManager, type SocketFactory } from './connection';
 import { EventLog } from './event-log';
+import { relayLine, type GameRelay } from './game-relay';
 import type { StoredSettings } from './settings-file';
 
 /** Persistence, implemented over a JSON file + `safeStorage` in `services/settings-store.ts`. */
@@ -59,6 +60,8 @@ export interface ControllerOptions {
     /** Development overrides (`BROBOT_SERVER_URL`, `BROBOT_WS_SECRET`); never persisted. */
     readonly override?: { readonly serverUrl?: string; readonly secret?: string };
     readonly random?: () => number;
+    /** The horror game's local relay (SLEEP TIGHT); without one, horror redemptions are only logged. */
+    readonly gameRelay?: GameRelay;
 }
 
 export class ClientController {
@@ -84,6 +87,16 @@ export class ClientController {
                 this.changed();
             },
             onBan: event => void this.runner.handle(event),
+            onHorror: event => {
+                const what = `"${event.effect}"${event.user ? ` from ${event.user}` : ''}`;
+                if (!options.gameRelay) {
+                    this.log.append('bot', 'info', `Horror redemption ${what} (no game relay here)`);
+                    return;
+                }
+                options.gameRelay.send(relayLine(event), delivered =>
+                    this.log.append('bot', delivered ? 'success' : 'warning', delivered ? `Sent ${what} to the horror game` : `Horror redemption ${what}: the game is not running`),
+                );
+            },
             onLog: (tone, message) => this.log.append('connection', tone, message),
         });
         this.runner = new CommandRunner({
