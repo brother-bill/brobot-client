@@ -43,6 +43,9 @@ describe('ClientController', () => {
     let snapshots: ClientSnapshot[];
     let logs: LogEntry[];
 
+    let relayed: string[];
+    let relayUp: boolean;
+
     const create = (options: { windows?: boolean; loginSupported?: boolean } = {}): ClientController => {
         const loginItems: LoginItems = {
             supported: options.loginSupported ?? true,
@@ -68,6 +71,12 @@ describe('ClientController', () => {
             },
             emitSnapshot: snapshot => snapshots.push(snapshot),
             emitLog: entry => logs.push(entry),
+            gameRelay: {
+                send: (line, onResult) => {
+                    relayed.push(line);
+                    onResult(relayUp);
+                },
+            },
         });
     };
 
@@ -81,6 +90,23 @@ describe('ClientController', () => {
         loginCalls = [];
         snapshots = [];
         logs = [];
+        relayed = [];
+        relayUp = true;
+    });
+
+    it('hands a horror redemption to the game relay as one JSON line, and logs whether the game took it', () => {
+        const controller = create();
+        controller.start();
+        controller.setSecret('s3cret');
+        sockets[0]?.handlers.onOpen();
+        sockets[0]?.handlers.onMessage('{"type":"horror","effect":"freeze","user":"Ash"}');
+        expect(relayed).toEqual(['{"event":"freeze","user":"Ash","source":"redeem"}\n']);
+        expect(logs.at(-1)).toMatchObject({ source: 'bot', tone: 'success' });
+
+        relayUp = false;
+        sockets[0]?.handlers.onMessage('{"type":"horror","effect":"boo","user":"Misty"}');
+        expect(logs.at(-1)).toMatchObject({ tone: 'warning' });
+        expect(logs.at(-1)?.message).toContain('not running');
     });
 
     it('waits for a secret before connecting', () => {

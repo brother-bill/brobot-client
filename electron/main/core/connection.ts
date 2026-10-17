@@ -19,6 +19,7 @@ import {
     INITIAL_CONNECTION_STATUS,
     parseStreamerServerEvent,
     type ChatbanEvent,
+    type HorrorEvent,
     type ConnectionStatus,
     type LogTone,
     type StreamerClientEvent,
@@ -57,6 +58,8 @@ export interface ConnectionOptions {
     readonly clock: Clock;
     readonly onStatus: (status: ConnectionStatus) => void;
     readonly onBan: (event: BanEvent) => void;
+    /** A horror redemption for the game on this machine (optional: older wiring ignores them). */
+    readonly onHorror?: (event: HorrorEvent) => void;
     readonly onLog: (tone: LogTone, message: string) => void;
     readonly random?: () => number;
     readonly policy?: BackoffPolicy;
@@ -220,6 +223,10 @@ export class ConnectionManager {
         }
         if (event.type === 'ping') {
             this.send({ type: 'pong', sentAt: event.sentAt });
+            return;
+        }
+        if (event.type === 'horror') {
+            this.options.onHorror?.(event);
             return;
         }
         this.options.onBan(event);

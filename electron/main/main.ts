@@ -19,6 +19,7 @@ import { ClientController, type LoginItems } from './core/controller';
 import { WindowsHostControl } from './host/windows-host-control';
 import { createHandlers } from './ipc/handlers';
 import { attachEvents, broadcast, registerIpc } from './ipc/register';
+import { GameRelaySocket } from './services/game-relay-socket';
 import { FileSettingsStore } from './services/settings-store';
 import { wsSocketFactory } from './services/ws-socket';
 import { AppTray } from './tray';
@@ -150,6 +151,7 @@ async function bootstrap(): Promise<void> {
         store: new FileSettingsStore(),
         socketFactory: wsSocketFactory,
         windowsHost,
+        gameRelay: new GameRelaySocket(),
         platform: process.platform,
         loginItems,
         version: app.getVersion(),
