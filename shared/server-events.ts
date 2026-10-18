@@ -6,7 +6,9 @@
 
 import {
     CHATBAN_DURATION_MS,
+    HORROR_EFFECTS,
     VOICEBAN_DURATION_MS,
+    type HorrorEffect,
     type StreamerServerEvent,
 } from './streamer-events';
 
@@ -66,6 +68,13 @@ export function parseStreamerServerEvent(frame: string): StreamerServerEvent | n
                     ? duration
                     : DEFAULT_BAN_DURATION_MS[type];
             return { type, durationMs };
+        }
+        case 'horror': {
+            // A horror redemption for the game on this machine: a known effect, and who redeemed it (for its ticker).
+            const effect = record['effect'];
+            const user = record['user'];
+            if (typeof effect !== 'string' || !(HORROR_EFFECTS as readonly string[]).includes(effect)) return null;
+            return { type: 'horror', effect: effect as HorrorEffect, user: typeof user === 'string' ? user.slice(0, 64) : '' };
         }
         case 'ping': {
             const sentAt = record['sentAt'];
