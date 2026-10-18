@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import ts from 'typescript';
 import { checkFreshness } from '../../../scripts/check-library-freshness.mjs';
+import { sealReceipts } from '../../../scripts/library-build-receipt.mjs';
 
 const app = fileURLToPath(new URL('../', import.meta.url));
 const root = resolve(app, '../..');
@@ -115,13 +116,26 @@ test('direct entry points reject stale compiled output before invoking builders 
                 baseUrl: '../..', paths: { '@singularity/ngx-ui': ['libs/ngx-ui/src/index.ts'] },
             } });
         }
-        write('libs/ngx-ui/package.json', { name: '@singularity/ngx-ui', exports: { '.': './src/index.ts' } });
-        write('libs/ngx-ui/ng-package.json', { dest: '../../dist/libs/ngx-ui' });
-        write('libs/ngx-ui/src/index.ts', 'export const value = 2;');
+        // The guard knows compiled output only through the library's build
+        // script and trusts it only through the build receipt that build
+        // seals: the toolchain pins it records come from these root files.
+        write('package.json', { name: 'fixture', packageManager: 'pnpm@11.5.1' });
+        write('.nvmrc', '22\n');
+        write('pnpm-lock.yaml', "lockfileVersion: '9.0'\nimporters:\n  .:\n    devDependencies:\n"
+            + "      '@angular/compiler-cli':\n        specifier: ^21.0.0\n        version: 21.0.0\n"
+            + '      ng-packagr:\n        specifier: ^21.0.0\n        version: 21.0.0\n'
+            + '      typescript:\n        specifier: ^5.9.3\n        version: 5.9.3\n');
+        write('libs/ngx-ui/package.json', { name: '@singularity/ngx-ui', scripts: { build: 'ng-packagr -p ng-package.json' },
+            exports: { '.': './src/index.ts' } });
+        write('libs/ngx-ui/ng-package.json', { dest: '../../dist/libs/ngx-ui', lib: { entryFile: 'src/index.ts' } });
+        write('libs/ngx-ui/src/index.ts', 'export const value = 1;');
         assert.deepEqual(checkFreshness({ root: fixture, consumer, tsconfig: 'tsconfig.app.json' }), [], 'source consumption needs no compiled output');
-        const output = write('dist/libs/ngx-ui/fesm2022/singularity-ngx-ui.mjs', 'export const value = 1;');
+        write('dist/libs/ngx-ui/fesm2022/singularity-ngx-ui.mjs', 'export const value = 1;');
         write('dist/libs/ngx-ui/package.json', { exports: { '.': './fesm2022/singularity-ngx-ui.mjs' } });
-        utimesSync(output, new Date(0), new Date(0));
+        sealReceipts({ root: fixture, package: '@singularity/ngx-ui' });
+        assert.deepEqual(checkFreshness({ root: fixture, consumer, tsconfig: 'tsconfig.app.json' }), [], 'sealed output is fresh');
+        // Content, not age: the source moves on after the sealed build.
+        write('libs/ngx-ui/src/index.ts', 'export const value = 2;');
         for (const operation of [...(desktop ? ['build', 'build:renderer'] : ['build']), 'typecheck', 'test']) {
             const command = pkg.scripts[operation];
             assert.ok(command.startsWith(`node ../../scripts/check-library-freshness.mjs --consumer ${consumer} --tsconfig `));
@@ -131,8 +145,8 @@ test('direct entry points reject stale compiled output before invoking builders 
                 `${shellQuote(resolve(root, 'scripts/check-library-freshness.mjs'))} --root ${shellQuote(fixture)}`);
             const result = spawnSync(probe, { shell: true, cwd: resolve(fixture, consumer), encoding: 'utf8' });
             assert.equal(result.status, 1, result.stdout + result.stderr);
-            assert.match(result.stderr, /stale compiled output/);
-            assert.match(result.stderr, /pnpm exec turbo run build --filter=@singularity\/ngx-ui --force/);
+            assert.match(result.stderr, /^stale compiled output: dist\/libs\/ngx-ui\nInput: libs\/ngx-ui\/src\/index\.ts$/m);
+            assert.match(result.stderr, /^Recovery \(from repository root\): pnpm exec turbo run build --filter=@singularity\/ngx-ui$/m);
         }
         if (!desktop) {
             rmSync(resolve(fixture, 'dist'), { recursive: true });
