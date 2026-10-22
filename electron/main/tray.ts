@@ -15,6 +15,8 @@ export interface TrayActions {
     setStartWithWindows(enabled: boolean): void;
     /** Downloads and installs the known update, with the window open to show it. */
     installUpdate(): void;
+    /** Looks for a newer brobot now, with the window open to show the answer. */
+    checkForUpdate(): void;
     quit(): void;
 }
 
@@ -66,7 +68,8 @@ export class AppTray {
         // Rebuilt only when something on it changed: the snapshot also moves
         // on every server ping, and a menu rebuilt while open closes itself.
         const updateLabel = this.updateLabel();
-        const key = JSON.stringify([state.statusLine, settings.paused, settings.startWithWindows, updateLabel]);
+        const checkLabel = this.checkLabel(snapshot.version);
+        const key = JSON.stringify([state.statusLine, settings.paused, settings.startWithWindows, updateLabel, checkLabel]);
         if (key === this.menuKey) return;
         this.menuKey = key;
         this.tray.setContextMenu(
@@ -96,6 +99,11 @@ export class AppTray {
                     click: item => this.actions.setStartWithWindows(item.checked),
                 },
                 { type: 'separator' },
+                {
+                    label: checkLabel,
+                    enabled: this.canUpdate(),
+                    click: () => this.actions.checkForUpdate(),
+                },
                 { label: 'Quit brobot', click: () => this.actions.quit() },
             ]),
         );
@@ -117,6 +125,16 @@ export class AppTray {
             default:
                 return null;
         }
+    }
+
+    /** "Check for updates (version 1.1.1)"; just the version where this copy cannot update itself. */
+    private checkLabel(version: string): string {
+        return this.canUpdate() ? `Check for updates (version ${version})` : `brobot version ${version}`;
+    }
+
+    private canUpdate(): boolean {
+        const phase = this.updateStatus?.phase;
+        return phase !== undefined && phase !== 'unsupported';
     }
 
     destroy(): void {

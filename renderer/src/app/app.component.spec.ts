@@ -95,6 +95,7 @@ describe('AppComponent', () => {
         const root = await render();
         expect(bridge.calls[0]?.name).toBe('client.snapshot');
         expect(root.querySelector('h1')?.textContent).toBe('brobot');
+        expect(root.querySelector('.app-header__version')?.textContent).toBe('v1.0.0');
         expect(root.textContent).toContain('Listening to brobot at admin.brobot.live.');
         expect(root.textContent).toContain('brobot asked for a chatban (5 min)');
 

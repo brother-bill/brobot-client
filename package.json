@@ -1,6 +1,6 @@
 {
     "name": "@singularity/brobot-client",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "private": true,
     "description": "brobot's streamer desktop app for Windows: lives in the tray, obeys !chatban / !voiceban from the bot by blocking Enter and muting the microphone.",
     "main": "dist/electron/main.js",

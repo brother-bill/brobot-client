@@ -217,6 +217,10 @@ async function bootstrap(): Promise<void> {
             showWindow();
             void appUpdater.install();
         },
+        checkForUpdate: () => {
+            showWindow();
+            void appUpdater.check(true);
+        },
         quit: () => app.quit(),
     });
     const appTray = tray;
