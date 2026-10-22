@@ -11,6 +11,7 @@ import {
     type ClientSnapshot,
     type LogEntry,
     type SettingsPatch,
+    type UpdateStatus,
 } from '@brobot-client/shared';
 import { HOST_BRIDGE, UnavailableBridge, isDesktopShell, messageOf } from './host-bridge';
 
@@ -24,6 +25,7 @@ export class ClientStore {
     private readonly _log = signal<readonly LogEntry[]>([]);
     private readonly _error = signal<string | null>(this.desktop ? null : UnavailableBridge.reason);
     private readonly _now = signal(Date.now());
+    private readonly _update = signal<UpdateStatus | null>(null);
 
     readonly snapshot = this._snapshot.asReadonly();
     readonly log = this._log.asReadonly();
@@ -31,6 +33,8 @@ export class ClientStore {
     readonly error = this._error.asReadonly();
     /** Ticks every second, for countdowns and "last heard 12 s ago". */
     readonly now = this._now.asReadonly();
+    /** Updates: whether a newer brobot exists, and how its download is going. */
+    readonly update = this._update.asReadonly();
 
     readonly connection = computed(() => this._snapshot()?.connection ?? null);
     readonly settings = computed(() => this._snapshot()?.settings ?? null);
@@ -41,10 +45,12 @@ export class ClientStore {
         const destroyRef = inject(DestroyRef);
         const offSnapshot = this.bridge.on('client.snapshot', snapshot => this.apply(snapshot));
         const offLog = this.bridge.on('log.appended', entry => this.append(entry));
+        const offUpdate = this.bridge.on('update.status', status => this._update.set(status));
         const ticker = setInterval(() => this._now.set(Date.now()), 1000);
         destroyRef.onDestroy(() => {
             offSnapshot();
             offLog();
+            offUpdate();
             clearInterval(ticker);
         });
         void this.refresh();
@@ -52,7 +58,10 @@ export class ClientStore {
 
     async refresh(): Promise<void> {
         if (!this.desktop) return;
-        await this.run(async () => this.apply(await this.bridge.invoke('client.snapshot', undefined)));
+        await this.run(async () => {
+            this.apply(await this.bridge.invoke('client.snapshot', undefined));
+            this._update.set(await this.bridge.invoke('update.status', undefined));
+        });
     }
 
     /** Resolves `false` (with {@link error} set) when the host refused the change. */
@@ -81,6 +90,19 @@ export class ClientStore {
             await this.bridge.invoke('log.clear', undefined);
             this._log.set([]);
         });
+    }
+
+    checkForUpdate(): Promise<boolean> {
+        return this.run(async () => this._update.set(await this.bridge.invoke('update.check', undefined)));
+    }
+
+    /** Downloads and installs; brobot quits and comes back as the new version. */
+    installUpdate(): Promise<boolean> {
+        return this.run(() => this.bridge.invoke('update.install', undefined));
+    }
+
+    dismissUpdate(): Promise<boolean> {
+        return this.run(async () => this._update.set(await this.bridge.invoke('update.dismiss', undefined)));
     }
 
     dismissError(): void {

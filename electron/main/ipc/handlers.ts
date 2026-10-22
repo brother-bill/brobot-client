@@ -13,12 +13,13 @@ import {
     type SettingsPatch,
 } from '@brobot-client/shared';
 import type { ClientController } from '../core/controller';
+import type { Updater } from '../core/updater';
 
 export type Handlers = {
     [K in OperationName]: (request: OperationRequest<K>) => Promise<OperationResponse<K>>;
 };
 
-export function createHandlers(controller: ClientController): Handlers {
+export function createHandlers(controller: ClientController, updater: Updater): Handlers {
     return {
         'client.snapshot': async () => controller.snapshot(),
         'settings.update': async request => controller.updateSettings(validPatch(request)),
@@ -27,6 +28,10 @@ export function createHandlers(controller: ClientController): Handlers {
         'command.releaseAll': async () => controller.releaseAll(),
         'connection.reconnect': async () => controller.reconnect(),
         'log.clear': async () => controller.clearLog(),
+        'update.status': async () => updater.snapshot(),
+        'update.check': async () => updater.check(true),
+        'update.install': async () => updater.install(),
+        'update.dismiss': async () => updater.dismiss(),
     };
 }
 

@@ -86,6 +86,22 @@ In the window, **Test chat ban** blocks Enter for 5 seconds and **Test voice
 ban** mutes the microphone for 5 seconds — nothing is sent to chat. Try the
 Enter key in Notepad during the test.
 
+### Updates
+
+brobot looks for a new version by itself, a minute after it starts and then
+every four hours. When there is one, Windows shows a notification, the tray
+menu gets an **Install brobot <version>** line, and the window shows what
+changed with **Install now** and **Later**.
+
+Nothing downloads or installs until you click **Install now** (in the window
+or the tray). brobot then downloads it, closes, installs it and opens again by
+itself, still set up and connected. Any ban in progress ends first. **Later**
+hides it in the window until the next version; the tray line stays. You can
+also look by hand: **Check for updates** in Settings.
+
+The portable exe cannot update itself: download the new one from the
+[releases page](https://github.com/brother-bill/brobot-client/releases/latest).
+
 ### If something is off
 
 - **"brobot refused the secret"** — the secret is wrong or was changed. Paste
@@ -156,6 +172,35 @@ recording a new commit of this repository. Nothing compiles the PowerShell
 shim's C# except Windows itself, so install a new build on a Windows PC before
 handing it over. `pnpm run package` builds the unpacked app in
 `release/win-unpacked/` for a quick look without the installer.
+
+### Releasing an update
+
+Installed copies (1.1.0 and later) update from GitHub Releases on
+[brother-bill/brobot-client](https://github.com/brother-bill/brobot-client/releases).
+To ship one:
+
+1. Bump `"version"` in `package.json` (a release of the same version is
+   refused) and merge.
+2. Build it: `gh workflow run build-brobot-client.yml --ref main` in
+   singularity, and wait for it to finish.
+3. Publish it, with the notes the streamer will read:
+
+   ```bash
+   apps/brobot-client/scripts/publish-release.sh <run-id> "Fixes the mic not unmuting after a voice ban."
+   ```
+
+   The run's summary prints this line with its id filled in. The script uses
+   your own `gh` login, checks the installer against `brobot-update.json`, and
+   creates release `v<version>` with the installer, the portable exe and the
+   manifest.
+
+Each copy picks it up within four hours or at its next start. The app reads
+`brobot-update.json` (written at build time by `scripts/release-manifest.mjs`)
+and refuses an installer whose size or SHA-512 does not match, or one hosted
+anywhere but this repository's releases. The update runs the NSIS installer
+silently (`/S --updated --force-run`): it installs to the folder chosen the
+first time and starts the new version. Settings in `%APPDATA%\brobot` are not
+touched.
 
 The installer is not code-signed, so SmartScreen warns on first run. Signing
 needs a code-signing certificate and `win.signtoolOptions` (or Azure Trusted

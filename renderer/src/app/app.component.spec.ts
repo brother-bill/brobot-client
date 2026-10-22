@@ -8,6 +8,7 @@ import {
     type HostEventName,
     type HostEvents,
     type OperationName,
+    type UpdateStatus,
 } from '@brobot-client/shared';
 import { provideLibUi } from '@singularity/ngx-ui';
 import { AppComponent } from './app.component';
@@ -31,13 +32,32 @@ const SNAPSHOT: ClientSnapshot = {
     secureStorageAvailable: true,
 };
 
+const UP_TO_DATE: UpdateStatus = {
+    phase: 'idle',
+    currentVersion: '1.0.0',
+    unsupportedReason: null,
+    update: null,
+    percent: 0,
+    lastCheckedAt: null,
+    lastError: null,
+    dismissed: false,
+};
+
+const AVAILABLE: UpdateStatus = {
+    ...UP_TO_DATE,
+    phase: 'available',
+    update: { version: '1.2.0', notes: 'Fixes the mic mute.' },
+};
+
 class FakeBridge implements BrobotBridge {
+    update: UpdateStatus = UP_TO_DATE;
     readonly calls: { name: OperationName; request: unknown }[] = [];
     private readonly handlers = new Map<string, (payload: unknown) => void>();
 
     invoke(name: OperationName, request: unknown): Promise<never> {
         this.calls.push({ name, request });
-        return Promise.resolve((name === 'client.snapshot' ? SNAPSHOT : undefined) as never);
+        const response = name === 'client.snapshot' ? SNAPSHOT : name.startsWith('update.') ? this.update : undefined;
+        return Promise.resolve(response as never);
     }
 
     on<K extends HostEventName>(name: K, handler: (payload: HostEvents[K]) => void): () => void {
@@ -108,9 +128,47 @@ describe('AppComponent', () => {
             Promise.resolve(
                 (name === 'client.snapshot'
                     ? { ...SNAPSHOT, settings: { ...SNAPSHOT.settings, hasSecret: false, setupComplete: false } }
-                    : undefined) as never,
+                    : name === 'update.status'
+                      ? UP_TO_DATE
+                      : undefined) as never,
             );
         const root = await render();
         expect(root.querySelector('h2')?.textContent.trim()).toBe('Set up brobot');
+    });
+
+    it('offers a newer brobot with its notes, and installs only when asked', async () => {
+        bridge.update = AVAILABLE;
+        const root = await render();
+        expect(root.textContent).toContain('brobot 1.2.0 is available');
+        expect(root.textContent).toContain('Fixes the mic mute.');
+        expect(bridge.calls.some(c => c.name === 'update.install')).toBe(false);
+
+        const button = (label: string): HTMLButtonElement =>
+            [...root.querySelectorAll('button')].find(b => b.textContent.trim() === label)!;
+        button('Install now').click();
+        expect(bridge.calls.at(-1)?.name).toBe('update.install');
+        button('Later').click();
+        expect(bridge.calls.at(-1)?.name).toBe('update.dismiss');
+    });
+
+    it('shows no banner when up to date or after Later, and Settings can check by hand', async () => {
+        bridge.update = { ...AVAILABLE, dismissed: true };
+        const root = await render();
+        expect(root.querySelector('app-update-banner')?.textContent.trim()).toBe('');
+        expect(root.textContent.replace(/\s+/g, ' ')).toContain('Version 1.0.0. brobot 1.2.0 is available.');
+        [...root.querySelectorAll('button')].find(b => b.textContent.includes('Check for updates'))!.click();
+        expect(bridge.calls.at(-1)?.name).toBe('update.check');
+    });
+
+    it('follows the download as the host pushes it', async () => {
+        bridge.update = AVAILABLE;
+        const fixture = TestBed.createComponent(AppComponent);
+        await fixture.whenStable();
+        bridge.push('update.status', { ...AVAILABLE, phase: 'downloading', percent: 42 });
+        fixture.detectChanges();
+        await fixture.whenStable();
+        const root = fixture.nativeElement as HTMLElement;
+        expect(root.textContent).toContain('Downloading brobot 1.2.0');
+        expect(root.textContent).toContain('42%');
     });
 });

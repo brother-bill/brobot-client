@@ -5,7 +5,7 @@
  */
 
 import { Menu, Tray, nativeImage, type NativeImage } from 'electron';
-import type { ClientSnapshot } from '@brobot-client/shared';
+import type { ClientSnapshot, UpdateStatus } from '@brobot-client/shared';
 import { trayIconPng } from './core/tray-icon';
 import { trayState, type TrayGlyph } from './core/tray-state';
 
@@ -13,6 +13,8 @@ export interface TrayActions {
     open(): void;
     setPaused(paused: boolean): void;
     setStartWithWindows(enabled: boolean): void;
+    /** Downloads and installs the known update, with the window open to show it. */
+    installUpdate(): void;
     quit(): void;
 }
 
@@ -21,6 +23,8 @@ export class AppTray {
     private readonly icons = new Map<TrayGlyph, NativeImage>();
     private menuKey = '';
     private glyph: TrayGlyph | null = null;
+    private snapshot: ClientSnapshot | null = null;
+    private updateStatus: UpdateStatus | null = null;
 
     constructor(private readonly actions: TrayActions) {
         this.tray = new Tray(this.icon('disconnected'));
@@ -32,6 +36,18 @@ export class AppTray {
     }
 
     update(snapshot: ClientSnapshot): void {
+        this.snapshot = snapshot;
+        this.render();
+    }
+
+    setUpdate(status: UpdateStatus): void {
+        this.updateStatus = status;
+        this.render();
+    }
+
+    private render(): void {
+        const snapshot = this.snapshot;
+        if (snapshot === null) return;
         const { settings } = snapshot;
         const state = trayState({
             connection: snapshot.connection,
@@ -49,12 +65,22 @@ export class AppTray {
 
         // Rebuilt only when something on it changed: the snapshot also moves
         // on every server ping, and a menu rebuilt while open closes itself.
-        const key = JSON.stringify([state.statusLine, settings.paused, settings.startWithWindows]);
+        const updateLabel = this.updateLabel();
+        const key = JSON.stringify([state.statusLine, settings.paused, settings.startWithWindows, updateLabel]);
         if (key === this.menuKey) return;
         this.menuKey = key;
         this.tray.setContextMenu(
             Menu.buildFromTemplate([
                 { label: state.statusLine, enabled: false },
+                ...(updateLabel === null
+                    ? []
+                    : [
+                          {
+                              label: updateLabel,
+                              enabled: this.updateStatus?.phase !== 'downloading' && this.updateStatus?.phase !== 'installing',
+                              click: () => this.actions.installUpdate(),
+                          },
+                      ]),
                 { type: 'separator' },
                 { label: 'Open brobot', click: () => this.actions.open() },
                 {
@@ -73,6 +99,24 @@ export class AppTray {
                 { label: 'Quit brobot', click: () => this.actions.quit() },
             ]),
         );
+    }
+
+    /** The menu's update line, while there is an update to install; it stays after "Later". */
+    private updateLabel(): string | null {
+        const status = this.updateStatus;
+        if (status === null || status.update === null) return null;
+        switch (status.phase) {
+            case 'available':
+            case 'error':
+                return `Install brobot ${status.update.version}`;
+            case 'downloading':
+                // No percentage: a menu rebuilt while it is open closes itself.
+                return `Downloading brobot ${status.update.version}…`;
+            case 'installing':
+                return `Installing brobot ${status.update.version}…`;
+            default:
+                return null;
+        }
     }
 
     destroy(): void {

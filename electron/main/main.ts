@@ -11,16 +11,18 @@
  * exits. One instance at a time — a second launch shows the first one's window.
  */
 
-import { BrowserWindow, Menu, app, shell } from 'electron';
+import { BrowserWindow, Menu, Notification, app, shell } from 'electron';
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 import { systemClock } from './core/clock';
 import { ClientController, type LoginItems } from './core/controller';
+import { Updater } from './core/updater';
 import { WindowsHostControl } from './host/windows-host-control';
 import { createHandlers } from './ipc/handlers';
 import { attachEvents, broadcast, registerIpc } from './ipc/register';
 import { GameRelaySocket } from './services/game-relay-socket';
 import { FileSettingsStore } from './services/settings-store';
+import { GitHubUpdateBackend } from './services/update-backend';
 import { wsSocketFactory } from './services/ws-socket';
 import { AppTray } from './tray';
 
@@ -36,6 +38,7 @@ const APP_USER_MODEL_ID = 'live.brobot.client';
 let mainWindow: BrowserWindow | null = null;
 let tray: AppTray | null = null;
 let controller: ClientController | null = null;
+let updater: Updater | null = null;
 let quitting = false;
 
 function createWindow(): BrowserWindow {
@@ -121,6 +124,31 @@ const loginItems: LoginItems = {
     },
 };
 
+/**
+ * Why this copy cannot update itself, or null when it can: only the installed
+ * Windows app runs an installer over itself. The portable exe is replaced by
+ * hand, and a development run has nothing installed to replace.
+ */
+function updateUnsupportedReason(): string | null {
+    if (process.platform !== 'win32') return 'Updates install only on Windows.';
+    if (!app.isPackaged) return 'This is a development run, so it does not update itself.';
+    if (process.env['PORTABLE_EXECUTABLE_FILE'] !== undefined) {
+        return 'This is the portable brobot, which cannot update itself. Download the new one from GitHub.';
+    }
+    return null;
+}
+
+/** One Windows notification per new version; clicking it opens the window. */
+function announceUpdate(version: string): void {
+    if (!Notification.isSupported()) return;
+    const notification = new Notification({
+        title: `brobot ${version} is available`,
+        body: 'Click to see what changed and install it. Nothing changes until you do.',
+    });
+    notification.on('click', () => showWindow());
+    notification.show();
+}
+
 /** An environment variable set to the empty string counts as unset. */
 function nonEmpty(value: string | undefined): string | undefined {
     return value === undefined || value === '' ? undefined : value;
@@ -167,16 +195,33 @@ async function bootstrap(): Promise<void> {
               },
     });
     controller = client;
-    registerIpc(createHandlers(client));
+
+    const unsupported = updateUnsupportedReason();
+    const appUpdater = new Updater({
+        clock: systemClock,
+        currentVersion: app.getVersion(),
+        backend: unsupported === null ? new GitHubUpdateBackend(app.getVersion()) : null,
+        unsupportedReason: unsupported ?? undefined,
+        emit: status => broadcast('update.status', status),
+        announce: release => announceUpdate(release.version),
+        log: (tone, message) => client.appendLog('app', tone, message),
+    });
+    updater = appUpdater;
+    registerIpc(createHandlers(client, appUpdater));
 
     tray = new AppTray({
         open: showWindow,
         setPaused: paused => client.updateSettings({ paused }),
         setStartWithWindows: enabled => client.updateSettings({ startWithWindows: enabled }),
+        installUpdate: () => {
+            showWindow();
+            void appUpdater.install();
+        },
         quit: () => app.quit(),
     });
     const appTray = tray;
     client.onChange(snapshot => appTray.update(snapshot));
+    appUpdater.onChange(status => appTray.setUpdate(status));
     appTray.update(client.snapshot());
 
     // At sign-in the app starts quietly in the tray. Anything else — the
@@ -186,6 +231,7 @@ async function bootstrap(): Promise<void> {
     if (!hidden) showWindow();
 
     client.start();
+    appUpdater.start();
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -203,6 +249,7 @@ if (!app.requestSingleInstanceLock()) {
         // Unblock Enter and restore the mic before going: the shims would do
         // it themselves once this process is gone, but not a second later.
         controller?.shutdown();
+        updater?.stop();
         tray?.destroy();
     });
     void bootstrap();

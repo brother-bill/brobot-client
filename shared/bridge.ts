@@ -12,6 +12,7 @@
 import type { ClientSnapshot, LogEntry } from './client-state';
 import type { BanCommand } from './server-events';
 import type { SettingsPatch } from './settings';
+import type { UpdateStatus } from './update-state';
 
 /**
  * Every operation the host exposes, as `name → { req, res }`.
@@ -33,6 +34,13 @@ export interface HostOperations {
     /** Drops the current socket (if any) and connects again immediately. */
     'connection.reconnect': { req: void; res: void };
     'log.clear': { req: void; res: void };
+    'update.status': { req: void; res: UpdateStatus };
+    /** Asks GitHub now, rather than at the next four-hourly look. */
+    'update.check': { req: void; res: UpdateStatus };
+    /** Downloads the known release, then quits and runs its installer. Nothing happens without one. */
+    'update.install': { req: void; res: void };
+    /** "Later": the window stops offering this release until a newer one appears. */
+    'update.dismiss': { req: void; res: UpdateStatus };
 }
 
 export type OperationName = keyof HostOperations;
@@ -47,6 +55,10 @@ export const OPERATION_NAMES = [
     'command.releaseAll',
     'connection.reconnect',
     'log.clear',
+    'update.status',
+    'update.check',
+    'update.install',
+    'update.dismiss',
 ] as const;
 
 // Exhaustiveness guard: every key of HostOperations must appear above, and
@@ -66,11 +78,12 @@ export interface HostEvents {
     /** Anything other than the log changed: connection, settings, bans, host. */
     'client.snapshot': ClientSnapshot;
     'log.appended': LogEntry;
+    'update.status': UpdateStatus;
 }
 
 export type HostEventName = keyof HostEvents;
 
-export const HOST_EVENT_NAMES = ['client.snapshot', 'log.appended'] as const;
+export const HOST_EVENT_NAMES = ['client.snapshot', 'log.appended', 'update.status'] as const;
 
 type ListedEvent = (typeof HOST_EVENT_NAMES)[number];
 export type EventListIsExhaustive = [

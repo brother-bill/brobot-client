@@ -41,10 +41,12 @@ Neither runs on a push, and neither is in the gate.
 | `shared/bridge.ts` | The one IPC contract (operations + events), as in mediabot |
 | `electron/main/core/` | Everything with logic, **free of Electron and Node imports**: the connection state machine, the command runner, the controller, tray-state mapping, the tray icon rasteriser. Tested in `*.spec.ts` beside each file |
 | `electron/main/host/` | `HostControl`: the interface, the dry run, and the Windows driver (a PowerShell shim) |
-| `electron/main/services/` | The Electron/Node edges: settings file + `safeStorage`, the `ws` socket |
+| `electron/main/services/` | The Electron/Node edges: settings file + `safeStorage`, the `ws` socket, the update download (`update-backend.ts`) |
+| `electron/main/core/updater.ts`, `core/release.ts` | Self-update: when to check, what the window offers, and the checks on a GitHub release before its installer runs |
 | `electron/main/{main,tray}.ts`, `ipc/` | Wiring only |
 | `renderer/` | The window: one page, four panels, a signals store |
 | `scripts/dist-linux.sh` | The Linux cross-build of the installer and the portable exe |
+| `scripts/release-manifest.mjs`, `scripts/publish-release.sh` | The update manifest written at build time, and publishing a build as a GitHub Release (README, "Releasing an update") |
 
 ## The things that will bite you
 
@@ -86,6 +88,13 @@ Neither runs on a push, and neither is in the gate.
   only in a packaged Windows build (`LoginItems.supported`); in development it
   would register `electron.exe`. The portable build registers
   `PORTABLE_EXECUTABLE_FILE`, not its temp-dir `execPath`.
+
+- **Updates install only when the streamer clicks Install.** The updater
+  checks on a timer, but downloading, quitting and running the installer all
+  wait for that click. Do not add a silent install-on-quit: quitting mid-stream
+  must never turn into a reinstall. It is not electron-updater on purpose
+  (`services/update-backend.ts` says why); `version` in `package.json` is what
+  it compares, so a release without a bump is refused by the publish script.
 
 - **`noPropertyAccessFromIndexSignature` is off** in this app's tsconfigs, only
   because the byte-for-byte contract copy uses dot access on a `Record`.
