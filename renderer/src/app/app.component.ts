@@ -28,7 +28,12 @@ import { UpdateBannerComponent } from './panels/update-banner.component';
     styleUrl: './app.component.scss',
     template: `
         <header class="app-header">
-            <h1 class="app-header__title">brobot</h1>
+            <div class="app-header__name">
+                <h1 class="app-header__title">brobot</h1>
+                @if (store.snapshot()?.version; as version) {
+                    <span class="app-header__version">v{{ version }}</span>
+                }
+            </div>
             @if (connection(); as view) {
                 <lib-live-dot [state]="view.dot" [label]="view.label" />
             }

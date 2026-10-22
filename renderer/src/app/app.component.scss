@@ -14,6 +14,17 @@
     background: var(--ui-surface-container);
 }
 
+.app-header__name {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+}
+
+.app-header__version {
+    font: var(--ui-label-medium);
+    color: var(--ui-on-surface-variant);
+}
+
 .app-header__title {
     font: var(--ui-title-large);
     margin: 0;
