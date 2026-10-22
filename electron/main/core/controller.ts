@@ -18,6 +18,8 @@ import {
     type ConnectionStatus,
     type HostInfo,
     type LogEntry,
+    type LogSource,
+    type LogTone,
     type SettingsPatch,
 } from '@brobot-client/shared';
 import { DryRunHostControl } from '../host/dry-run-host-control';
@@ -194,6 +196,11 @@ export class ClientController {
         }
         this.log.append('connection', 'info', 'Reconnecting now');
         this.connection.reconnectNow();
+    }
+
+    /** A line from outside the controller (the updater) in the same log. */
+    appendLog(source: LogSource, tone: LogTone, message: string): void {
+        this.log.append(source, tone, message);
     }
 
     clearLog(): void {

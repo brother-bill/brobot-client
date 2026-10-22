@@ -10,7 +10,7 @@ const INVOKE_CHANNEL = 'brobot:invoke';
 const EVENT_CHANNEL = 'brobot:event';
 
 /** Mirrors `HOST_EVENT_NAMES`; literal because the preload is bundled on its own. */
-const EVENT_NAMES = ['client.snapshot', 'log.appended'] as const;
+const EVENT_NAMES = ['client.snapshot', 'log.appended', 'update.status'] as const;
 
 const bridge = {
     invoke(name: string, request: unknown): Promise<unknown> {

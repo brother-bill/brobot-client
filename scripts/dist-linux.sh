@@ -57,3 +57,5 @@ cd "$(dirname "$0")/.."
 export ELECTRON_BUILDER_WINE_TOOLSET_DIR="$wine_dir"
 pnpm run build
 pnpm exec electron-builder --win --publish never
+# The update manifest the installed app checks downloads against.
+node scripts/release-manifest.mjs

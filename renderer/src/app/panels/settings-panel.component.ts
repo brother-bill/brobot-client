@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, input, signal } from '@angular/core';
 import { FormControl, ReactiveFormsModule, type AbstractControl, type ValidationErrors } from '@angular/forms';
-import { normalizeServerUrl } from '@brobot-client/shared';
+import { RELEASES_URL, normalizeServerUrl } from '@brobot-client/shared';
 import {
     LibBtnDirective,
     LibCardComponent,
@@ -15,6 +15,7 @@ import {
     LibSlideToggleComponent,
 } from '@singularity/ngx-ui';
 import { ClientStore } from '../core/client.store';
+import { formatAgo } from '../core/describe';
 
 /** The same rule the main process applies, so the window can say why before saving. */
 function serverUrlValidator(control: AbstractControl<string>): ValidationErrors | null {
@@ -128,8 +129,31 @@ function serverUrlValidator(control: AbstractControl<string>): ValidationErrors 
 
                     <p class="muted">
                         Closing this window keeps brobot running in the tray, by the clock in the taskbar. To stop
-                        it, right-click the tray icon and choose Quit. Version {{ store.snapshot()?.version }}.
+                        it, right-click the tray icon and choose Quit.
                     </p>
+
+                    <div class="stack">
+                        <p>
+                            Version {{ store.snapshot()?.version }}.
+                            @if (updateLine(); as line) {
+                                {{ line }}
+                            }
+                        </p>
+                        <div class="row">
+                            @if (canUpdate()) {
+                                <button
+                                    libBtn="secondary"
+                                    appearance="outlined"
+                                    type="button"
+                                    [disabled]="checking()"
+                                    (click)="store.checkForUpdate()">
+                                    {{ checking() ? 'Checking…' : 'Check for updates' }}
+                                </button>
+                            } @else if (store.update()?.phase === 'unsupported') {
+                                <a [href]="releasesUrl" target="_blank" rel="noopener">Download the latest brobot</a>
+                            }
+                        </div>
+                    </div>
                 }
             </lib-card-content>
         </lib-card>
@@ -158,6 +182,28 @@ export class SettingsPanelComponent {
     );
 
     protected readonly secretEntered = computed(() => this.secretValue().trim() !== '');
+
+    protected readonly releasesUrl = RELEASES_URL;
+
+    protected readonly canUpdate = computed(() => {
+        const phase = this.store.update()?.phase;
+        return phase !== undefined && phase !== 'unsupported';
+    });
+
+    protected readonly checking = computed(() => this.store.update()?.phase === 'checking');
+
+    /** One sentence on where updates stand, after the version number. */
+    protected readonly updateLine = computed((): string | null => {
+        const status = this.store.update();
+        if (status === null) return null;
+        if (status.phase === 'unsupported') return status.unsupportedReason;
+        if (status.lastError !== null && status.phase !== 'downloading') return status.lastError;
+        if (status.update !== null) return `brobot ${status.update.version} is available.`;
+        if (status.lastCheckedAt !== null) {
+            return `Up to date (checked ${formatAgo(this.store.now() - status.lastCheckedAt)}).`;
+        }
+        return 'brobot looks for updates by itself a minute after it starts, then every four hours.';
+    });
 
     constructor() {
         this.serverUrl.valueChanges.subscribe(value => this.serverValue.set(value));

@@ -6,6 +6,7 @@ import { CommandsPanelComponent } from './panels/commands-panel.component';
 import { EventLogComponent } from './panels/event-log.component';
 import { SettingsPanelComponent } from './panels/settings-panel.component';
 import { StatusPanelComponent } from './panels/status-panel.component';
+import { UpdateBannerComponent } from './panels/update-banner.component';
 
 /**
  * One small window: status, the two commands, the log, settings. Until setup
@@ -22,6 +23,7 @@ import { StatusPanelComponent } from './panels/status-panel.component';
         CommandsPanelComponent,
         EventLogComponent,
         SettingsPanelComponent,
+        UpdateBannerComponent,
     ],
     styleUrl: './app.component.scss',
     template: `
@@ -38,6 +40,8 @@ import { StatusPanelComponent } from './panels/status-panel.component';
                     {{ message }}
                 </lib-alert-banner>
             }
+
+            <app-update-banner />
 
             @if (setupComplete()) {
                 <app-status-panel />
