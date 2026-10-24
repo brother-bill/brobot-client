@@ -28,7 +28,7 @@ import type { Clock } from './clock';
 import { CommandRunner } from './command-runner';
 import { ConnectionManager, type SocketFactory } from './connection';
 import { EventLog } from './event-log';
-import { NO_HORROR_RUN, relayLine, type GameRelay, type HorrorRun } from './game-relay';
+import { chatRelayLine, NO_HORROR_RUN, relayLine, type GameRelay, type HorrorRun } from './game-relay';
 import type { StoredSettings } from './settings-file';
 
 /** Persistence, implemented over a JSON file + `safeStorage` in `services/settings-store.ts`. */
@@ -71,6 +71,8 @@ export class ClientController {
     private connectionStatus: ConnectionStatus = INITIAL_CONNECTION_STATUS;
     /** What the horror game last said about its run (SLEEP TIGHT). */
     private horrorRun: HorrorRun = NO_HORROR_RUN;
+    /** Whether the last forwarded chat line reached the game (logs once per stretch, not per line). */
+    private chatForwarding = false;
     private activeBans: readonly ActiveBan[] = [];
     private readonly log: EventLog;
     private readonly connection: ConnectionManager;
@@ -104,6 +106,12 @@ export class ClientController {
                     this.log.append('bot', delivered ? 'success' : 'warning', delivered ? `Sent ${what} to the horror game` : `Horror redemption ${what}: the game is not running`),
                 );
             },
+            onHorrorChat: event => {
+                // brobot's SLEEP TIGHT rehearsal / live: a chat line for the game (dropped while the game is not running)
+                const delivered = options.gameRelay?.sendIfConnected?.(chatRelayLine(event)) ?? false;
+                if (delivered && !this.chatForwarding) this.log.append('bot', 'info', 'Passing Twitch chat on to the horror game');
+                this.chatForwarding = delivered;
+            },
             onLog: (tone, message) => this.log.append('connection', tone, message),
         });
         this.runner = new CommandRunner({
@@ -136,6 +144,9 @@ export class ClientController {
                 this.log.append('bot', 'info', run.live ? `The horror game started a run: showing its rewards` : 'The horror run is over: hiding its rewards');
             }
             this.sendHorrorRun();
+        }, preview => {
+            // brobot decides whether to post the dream's rules (live mode only)
+            this.connection.send({ type: 'horror_preview', dream: preview.dream, ...(preview.name ? { name: preview.name } : {}) });
         });
         const host = this.hostInfo();
         this.log.append(

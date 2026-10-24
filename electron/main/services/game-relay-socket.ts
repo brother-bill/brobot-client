@@ -1,5 +1,14 @@
 import { Socket } from 'node:net';
-import { GAME_RELAY_HOST, GAME_RELAY_PORT, NO_HORROR_RUN, parseGameLine, type GameRelay, type HorrorRun } from '../core/game-relay';
+import {
+    GAME_RELAY_HOST,
+    GAME_RELAY_PORT,
+    NO_HORROR_RUN,
+    parseGameLine,
+    parseGamePreview,
+    type GameRelay,
+    type HorrorPreview,
+    type HorrorRun,
+} from '../core/game-relay';
 
 /** How often the watcher tries to reach the game while it is not running. */
 const WATCH_RETRY_MS = 5000;
@@ -14,6 +23,7 @@ export class GameRelaySocket implements GameRelay {
     private connected = false;
     private pending: { line: string; onResult: (delivered: boolean) => void }[] = [];
     private onRun: ((run: HorrorRun) => void) | null = null;
+    private onPreview: ((preview: HorrorPreview) => void) | null = null;
     private run: HorrorRun = NO_HORROR_RUN;
     private buffer = '';
     private timer: NodeJS.Timeout | null = null;
@@ -32,8 +42,15 @@ export class GameRelaySocket implements GameRelay {
         if (!this.socket) this.open();
     }
 
-    watchRun(onRun: (run: HorrorRun) => void): void {
+    sendIfConnected(line: string): boolean {
+        if (!this.socket || !this.connected) return false;
+        this.socket.write(line);
+        return true;
+    }
+
+    watchRun(onRun: (run: HorrorRun) => void, onPreview?: (preview: HorrorPreview) => void): void {
         this.onRun = onRun;
+        this.onPreview = onPreview ?? null;
         if (this.timer) return;
         this.timer = setInterval(() => {
             if (!this.socket) this.open();
@@ -46,6 +63,7 @@ export class GameRelaySocket implements GameRelay {
         if (this.timer) clearInterval(this.timer);
         this.timer = null;
         this.onRun = null;
+        this.onPreview = null;
         this.socket?.destroy();
     }
 
@@ -71,9 +89,12 @@ export class GameRelaySocket implements GameRelay {
             this.buffer += chunk;
             let newline = this.buffer.indexOf('\n');
             while (newline >= 0) {
-                const run = parseGameLine(this.buffer.slice(0, newline).trim());
+                const text = this.buffer.slice(0, newline).trim();
                 this.buffer = this.buffer.slice(newline + 1);
+                const run = parseGameLine(text);
                 if (run) this.report(run);
+                const preview = run ? null : parseGamePreview(text);
+                if (preview) this.onPreview?.(preview);
                 newline = this.buffer.indexOf('\n');
             }
             if (this.buffer.length > 64 * 1024) this.buffer = '';
