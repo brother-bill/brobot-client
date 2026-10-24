@@ -28,7 +28,7 @@ import type { Clock } from './clock';
 import { CommandRunner } from './command-runner';
 import { ConnectionManager, type SocketFactory } from './connection';
 import { EventLog } from './event-log';
-import { relayLine, type GameRelay } from './game-relay';
+import { NO_HORROR_RUN, relayLine, type GameRelay, type HorrorRun } from './game-relay';
 import type { StoredSettings } from './settings-file';
 
 /** Persistence, implemented over a JSON file + `safeStorage` in `services/settings-store.ts`. */
@@ -69,6 +69,8 @@ export interface ControllerOptions {
 export class ClientController {
     private settings: StoredSettings;
     private connectionStatus: ConnectionStatus = INITIAL_CONNECTION_STATUS;
+    /** What the horror game last said about its run (SLEEP TIGHT). */
+    private horrorRun: HorrorRun = NO_HORROR_RUN;
     private activeBans: readonly ActiveBan[] = [];
     private readonly log: EventLog;
     private readonly connection: ConnectionManager;
@@ -85,7 +87,10 @@ export class ClientController {
             clock: options.clock,
             random: options.random,
             onStatus: status => {
+                const opened = status.state === 'connected' && this.connectionStatus.state !== 'connected';
                 this.connectionStatus = status;
+                // brobot (re)connected during a horror run: tell it (it hides the rewards by default)
+                if (opened && this.horrorRun.live) this.sendHorrorRun();
                 this.changed();
             },
             onBan: event => void this.runner.handle(event),
@@ -124,6 +129,14 @@ export class ClientController {
 
     /** Connect if configured. Call once, after the window and tray exist. */
     start(): void {
+        this.options.gameRelay?.watchRun?.(run => {
+            const was = this.horrorRun;
+            this.horrorRun = run;
+            if (run.live !== was.live) {
+                this.log.append('bot', 'info', run.live ? `The horror game started a run: showing its rewards` : 'The horror run is over: hiding its rewards');
+            }
+            this.sendHorrorRun();
+        });
         const host = this.hostInfo();
         this.log.append(
             'app',
@@ -210,11 +223,17 @@ export class ClientController {
 
     /** Stop listening and undo anything in progress. Called on quit. */
     shutdown(): void {
+        this.options.gameRelay?.stop?.();
         this.runner.releaseAll();
         this.connection.stop();
     }
 
     // ── internals ─────────────────────────────────────────────────────────
+
+    private sendHorrorRun(): void {
+        const run = this.horrorRun;
+        this.connection.send(run.live && run.dream ? { type: 'horror_run', live: true, dream: run.dream } : { type: 'horror_run', live: run.live });
+    }
 
     private commit(next: StoredSettings): void {
         const firstSetup = !next.setupComplete && this.secret() !== null;
