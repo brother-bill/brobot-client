@@ -4,6 +4,7 @@ import { DryRunHostControl } from '../host/dry-run-host-control';
 import { FakeClock, settle } from '../testing/fake-clock';
 import type { SocketHandlers } from './connection';
 import { ClientController, type LoginItems, type SettingsStore } from './controller';
+import { parseGameLine, type HorrorRun } from './game-relay';
 import { DEFAULT_SETTINGS, type StoredSettings } from './settings-file';
 
 class MemoryStore implements SettingsStore {
@@ -45,6 +46,7 @@ describe('ClientController', () => {
 
     let relayed: string[];
     let relayUp: boolean;
+    let gameSays: ((run: HorrorRun) => void) | null;
 
     const create = (options: { windows?: boolean; loginSupported?: boolean } = {}): ClientController => {
         const loginItems: LoginItems = {
@@ -76,6 +78,9 @@ describe('ClientController', () => {
                     relayed.push(line);
                     onResult(relayUp);
                 },
+                watchRun: onRun => {
+                    gameSays = onRun;
+                },
             },
         });
     };
@@ -92,6 +97,7 @@ describe('ClientController', () => {
         logs = [];
         relayed = [];
         relayUp = true;
+        gameSays = null;
     });
 
     it('hands a horror redemption to the game relay as one JSON line, and logs whether the game took it', () => {
@@ -107,6 +113,34 @@ describe('ClientController', () => {
         sockets[0]?.handlers.onMessage('{"type":"horror","effect":"boo","user":"Misty"}');
         expect(logs.at(-1)).toMatchObject({ tone: 'warning' });
         expect(logs.at(-1)?.message).toContain('not running');
+    });
+
+    it("tells brobot the horror game's run state, and again whenever brobot reconnects", () => {
+        const controller = create();
+        controller.start();
+        controller.setSecret('s3cret');
+        sockets[0]?.handlers.onOpen();
+        expect(sockets[0]?.sent).toEqual([]);   // no run: nothing to say (brobot hides the rewards by default)
+        gameSays?.({ live: true, dream: 'Night Shift' });
+        expect(JSON.parse(sockets[0]?.sent.at(-1) ?? '{}')).toEqual({ type: 'horror_run', live: true, dream: 'Night Shift' });
+        expect(logs.at(-1)?.message).toContain('started a run');
+
+        sockets[0]?.handlers.onClose(1006, 'gone');
+        clock.advance(60_000);
+        const again = sockets.at(-1);
+        again?.handlers.onOpen();
+        expect(JSON.parse(again?.sent.at(-1) ?? '{}')).toEqual({ type: 'horror_run', live: true, dream: 'Night Shift' });
+
+        gameSays?.({ live: false, dream: '' });
+        expect(JSON.parse(again?.sent.at(-1) ?? '{}')).toEqual({ type: 'horror_run', live: false });
+    });
+
+    it("reads the game's run lines", () => {
+        expect(parseGameLine('{"type":"run","state":"start","dream":"The Woods"}')).toEqual({ live: true, dream: 'The Woods' });
+        expect(parseGameLine('{"type":"run","state":"end","dream":""}')).toEqual({ live: false, dream: '' });
+        expect(parseGameLine('{"type":"run","state":"maybe"}')).toBeNull();
+        expect(parseGameLine('{"event":"boo"}')).toBeNull();
+        expect(parseGameLine('not json')).toBeNull();
     });
 
     it('waits for a secret before connecting', () => {
