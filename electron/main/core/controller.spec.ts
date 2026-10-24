@@ -4,7 +4,7 @@ import { DryRunHostControl } from '../host/dry-run-host-control';
 import { FakeClock, settle } from '../testing/fake-clock';
 import type { SocketHandlers } from './connection';
 import { ClientController, type LoginItems, type SettingsStore } from './controller';
-import { parseGameLine, type HorrorRun } from './game-relay';
+import { chatRelayLine, parseGameLine, parseGamePreview, type HorrorPreview, type HorrorRun } from './game-relay';
 import { DEFAULT_SETTINGS, type StoredSettings } from './settings-file';
 
 class MemoryStore implements SettingsStore {
@@ -47,6 +47,8 @@ describe('ClientController', () => {
     let relayed: string[];
     let relayUp: boolean;
     let gameSays: ((run: HorrorRun) => void) | null;
+    let gamePreviews: ((preview: HorrorPreview) => void) | null;
+    let chatToGame: string[];
 
     const create = (options: { windows?: boolean; loginSupported?: boolean } = {}): ClientController => {
         const loginItems: LoginItems = {
@@ -78,8 +80,13 @@ describe('ClientController', () => {
                     relayed.push(line);
                     onResult(relayUp);
                 },
-                watchRun: onRun => {
+                watchRun: (onRun, onPreview) => {
                     gameSays = onRun;
+                    gamePreviews = onPreview ?? null;
+                },
+                sendIfConnected: line => {
+                    if (relayUp) chatToGame.push(line);
+                    return relayUp;
                 },
             },
         });
@@ -98,6 +105,8 @@ describe('ClientController', () => {
         relayed = [];
         relayUp = true;
         gameSays = null;
+        gamePreviews = null;
+        chatToGame = [];
     });
 
     it('hands a horror redemption to the game relay as one JSON line, and logs whether the game took it', () => {
@@ -113,6 +122,37 @@ describe('ClientController', () => {
         sockets[0]?.handlers.onMessage('{"type":"horror","effect":"boo","user":"Misty"}');
         expect(logs.at(-1)).toMatchObject({ tone: 'warning' });
         expect(logs.at(-1)?.message).toContain('not running');
+    });
+
+    it('passes forwarded chat lines to the game only while it runs, logging once per stretch', () => {
+        const controller = create();
+        controller.start();
+        controller.setSecret('s3cret');
+        sockets[0]?.handlers.onOpen();
+        sockets[0]?.handlers.onMessage('{"type":"horror_chat","user":"Kevin","text":"!door left"}');
+        sockets[0]?.handlers.onMessage('{"type":"horror_chat","user":"Bob","text":"2"}');
+        expect(chatToGame).toEqual(['{"type":"chat","user":"Kevin","text":"!door left"}\n', '{"type":"chat","user":"Bob","text":"2"}\n']);
+        expect(logs.filter(l => l.message.includes('Passing Twitch chat')).length).toBe(1);
+        relayUp = false;
+        sockets[0]?.handlers.onMessage('{"type":"horror_chat","user":"Kevin","text":"!help"}');
+        expect(chatToGame.length).toBe(2);
+        expect(relayed).toEqual([]);   // never queued like a redemption
+    });
+
+    it("passes the game's dream preview on to brobot", () => {
+        const controller = create();
+        controller.start();
+        controller.setSecret('s3cret');
+        sockets[0]?.handlers.onOpen();
+        gamePreviews?.({ dream: 'freddy', name: 'Night Shift' });
+        expect(JSON.parse(sockets[0]?.sent.at(-1) ?? '{}')).toEqual({ type: 'horror_preview', dream: 'freddy', name: 'Night Shift' });
+    });
+
+    it('reads preview lines and writes chat lines in the game format', () => {
+        expect(parseGamePreview('{"type":"preview","dream":"freddy","name":"Night Shift"}')).toEqual({ dream: 'freddy', name: 'Night Shift' });
+        expect(parseGamePreview('{"type":"preview"}')).toBeNull();
+        expect(parseGamePreview('{"type":"run","state":"start"}')).toBeNull();
+        expect(chatRelayLine({ type: 'horror_chat', user: 'A "b"', text: 'x' })).toBe('{"type":"chat","user":"A \\"b\\"","text":"x"}\n');
     });
 
     it("tells brobot the horror game's run state, and again whenever brobot reconnects", () => {

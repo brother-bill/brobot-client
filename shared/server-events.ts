@@ -76,6 +76,13 @@ export function parseStreamerServerEvent(frame: string): StreamerServerEvent | n
             if (typeof effect !== 'string' || !(HORROR_EFFECTS as readonly string[]).includes(effect)) return null;
             return { type: 'horror', effect: effect as HorrorEffect, user: typeof user === 'string' ? user.slice(0, 64) : '' };
         }
+        case 'horror_chat': {
+            // A chat line from the channel for the horror game (brobot's SLEEP TIGHT rehearsal / live modes).
+            const user = record['user'];
+            const text = record['text'];
+            if (typeof text !== 'string' || text.length === 0) return null;
+            return { type: 'horror_chat', user: typeof user === 'string' ? user.slice(0, 64) : '', text: text.slice(0, 300) };
+        }
         case 'ping': {
             const sentAt = record['sentAt'];
             return typeof sentAt === 'number' && Number.isFinite(sentAt) ? { type: 'ping', sentAt } : null;

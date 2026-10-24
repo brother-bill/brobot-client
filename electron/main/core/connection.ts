@@ -19,6 +19,7 @@ import {
     INITIAL_CONNECTION_STATUS,
     parseStreamerServerEvent,
     type ChatbanEvent,
+    type HorrorChatEvent,
     type HorrorEvent,
     type ConnectionStatus,
     type LogTone,
@@ -60,6 +61,8 @@ export interface ConnectionOptions {
     readonly onBan: (event: BanEvent) => void;
     /** A horror redemption for the game on this machine (optional: older wiring ignores them). */
     readonly onHorror?: (event: HorrorEvent) => void;
+    /** A chat line for the horror game (brobot's SLEEP TIGHT rehearsal / live modes). */
+    readonly onHorrorChat?: (event: HorrorChatEvent) => void;
     readonly onLog: (tone: LogTone, message: string) => void;
     readonly random?: () => number;
     readonly policy?: BackoffPolicy;
@@ -227,6 +230,10 @@ export class ConnectionManager {
         }
         if (event.type === 'horror') {
             this.options.onHorror?.(event);
+            return;
+        }
+        if (event.type === 'horror_chat') {
+            this.options.onHorrorChat?.(event);
             return;
         }
         this.options.onBan(event);
