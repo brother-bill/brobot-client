@@ -280,6 +280,40 @@ describe('ClientController', () => {
         expect(messages).toContain('voiceban disabled');
     });
 
+    it('saves the overlay keys one at a time, and uses them for the next voiceban', async () => {
+        const controller = create();
+        controller.updateSettings({ voicebanKeys: { start: 'none' } });
+        controller.updateSettings({ voicebanKeys: { end: 'F10' } });
+        expect(store.settings.voicebanKeys).toEqual({ start: 'none', end: 'F10' });
+        expect(controller.snapshot().settings.voicebanKeys).toEqual({ start: 'none', end: 'F10' });
+        const messages = logs.map(l => l.message);
+        expect(messages).toContain('Nothing is pressed when a voiceban starts');
+        expect(messages).toContain('F10 is pressed when a voiceban ends');
+
+        controller.test('voiceban');
+        await settle();
+        expect(windowsHost.calls[0]?.keys).toEqual({ start: 'none', end: 'F10' });
+    });
+
+    it('releases a voiceban on quit, which presses the end key', async () => {
+        store.secret = 's3cret';
+        const controller = create();
+        controller.start();
+        sockets[0]!.handlers.onOpen();
+        sockets[0]!.handlers.onMessage('{"type":"voiceban","durationMs":30000}');
+        await settle();
+        expect(logs.map(l => l.message)).toContain('Would press F8 (overlay on) (safe mode: nothing was pressed)');
+        controller.shutdown();
+        await settle();
+        expect(windowsHost.calls[0]?.released).toBe(true);
+        const messages = logs.map(l => l.message);
+        expect(messages.slice(messages.indexOf('Microphone unmuted (released early)'))).toEqual([
+            'Microphone unmuted (released early)',
+            'Would press F9 (overlay off) (safe mode: nothing was pressed)',
+            'Could not tell brobot the voiceban is over: not connected',
+        ]);
+    });
+
     it('pushes a snapshot on every change, and stops cleanly', () => {
         store.secret = 's3cret';
         const controller = create();

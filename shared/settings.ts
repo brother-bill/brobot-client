@@ -11,6 +11,33 @@ import type { BanCommand } from './server-events';
 
 export const DEFAULT_SERVER_URL = `wss://admin.brobot.live${STREAMER_SOCKET_PATH}`;
 
+/** The keys a voiceban may press: the function keys Windows has (F1–F24). */
+export const OVERLAY_KEYS = [
+    'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10', 'F11', 'F12',
+    'F13', 'F14', 'F15', 'F16', 'F17', 'F18', 'F19', 'F20', 'F21', 'F22', 'F23', 'F24',
+] as const;
+
+export type OverlayKey = (typeof OVERLAY_KEYS)[number];
+
+/** A key to press, or `'none'` to press nothing. */
+export type OverlayKeySetting = OverlayKey | 'none';
+
+/**
+ * The keys a voiceban presses as it starts and as it ends. Streamlabs Desktop
+ * has them bound as global hotkeys that show and hide the voiceban overlay;
+ * the pre-rewrite client pressed F8 and F9 the same way.
+ */
+export interface VoicebanKeys {
+    readonly start: OverlayKeySetting;
+    readonly end: OverlayKeySetting;
+}
+
+export const DEFAULT_VOICEBAN_KEYS: VoicebanKeys = { start: 'F8', end: 'F9' };
+
+export function isOverlayKeySetting(value: unknown): value is OverlayKeySetting {
+    return value === 'none' || (OVERLAY_KEYS as readonly unknown[]).includes(value);
+}
+
 /** Settings as the renderer sees them. */
 export interface PublicSettings {
     /** The full socket URL, `wss://…/api/ashketchum`. */
@@ -19,6 +46,8 @@ export interface PublicSettings {
     readonly hasSecret: boolean;
     /** Per-command switch: off means "tell brobot no" instead of doing it. */
     readonly commands: Readonly<Record<BanCommand, boolean>>;
+    /** The overlay hotkeys a voiceban presses (default F8 on, F9 off). */
+    readonly voicebanKeys: VoicebanKeys;
     /**
      * Safe mode: every command, real or test, goes to the dry-run driver. The
      * log shows what WOULD have happened; the keyboard and mic are untouched.
@@ -40,6 +69,7 @@ export type SettingsPatch = Partial<
     Pick<PublicSettings, 'serverUrl' | 'safeMode' | 'paused' | 'startWithWindows'>
 > & {
     readonly commands?: Partial<Record<BanCommand, boolean>>;
+    readonly voicebanKeys?: Partial<VoicebanKeys>;
 };
 
 export type ServerUrlResult =

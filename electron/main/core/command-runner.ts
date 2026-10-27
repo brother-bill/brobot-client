@@ -24,14 +24,17 @@ import {
     type BanCompleteEvent,
     type LogSource,
     type LogTone,
+    type VoicebanKeys,
 } from '@brobot-client/shared';
-import type { HostAction, HostActionResult, HostControl } from '../host/host-control';
+import type { HostAction, HostActionResult, HostControl, KeyPress } from '../host/host-control';
 import type { Clock } from './clock';
 import type { BanEvent } from './connection';
 
 export interface CommandPolicy {
     readonly commands: Readonly<Record<BanCommand, boolean>>;
     readonly paused: boolean;
+    /** The Streamlabs overlay keys a voiceban presses as it starts and ends. */
+    readonly voicebanKeys: VoicebanKeys;
 }
 
 export interface CommandRunnerOptions {
@@ -151,7 +154,10 @@ export class CommandRunner {
         const copy = COPY[command];
         const host = this.options.host();
         const dryRun = host.kind === 'dry-run';
-        const action = command === 'chatban' ? host.blockEnter(durationMs) : host.muteMicrophone(durationMs);
+        const action =
+            command === 'chatban'
+                ? host.blockEnter(durationMs)
+                : host.muteMicrophone(durationMs, this.options.policy().voicebanKeys);
         const startedAt = clock.now();
         const running: RunningBan = {
             id: this.nextId++,
@@ -168,6 +174,7 @@ export class CommandRunner {
         if (started.ok) {
             log('host', 'success', `${prefix}${copy.applied(formatDuration(durationMs))}${suffix}`);
         }
+        this.logKeys(started.keys, prefix, dryRun);
 
         const result = await action.done;
         this.running.delete(running.id);
@@ -175,16 +182,34 @@ export class CommandRunner {
 
         if (!started.ok) {
             log('host', 'error', `${prefix}${copy.failed}: ${started.error}`);
+            this.logKeys(result.keys, prefix, dryRun);
             return started;
         }
         if (!result.ok) {
             log('host', 'error', `${prefix}${copy.failed}: ${result.error}`);
+            this.logKeys(result.keys, prefix, dryRun);
             return result;
         }
         const early = running.released ? ' (released early)' : '';
         const detail = result.detail !== undefined && !dryRun ? ` — ${result.detail}` : '';
         log('host', 'success', `${prefix}${copy.undone}${early}${detail}`);
+        this.logKeys(result.keys, prefix, dryRun);
         return result;
+    }
+
+    /** "Pressed F8 (overlay on)"; in safe mode, what would have been pressed. */
+    private logKeys(keys: readonly KeyPress[] | undefined, prefix: string, dryRun: boolean): void {
+        const { log } = this.options;
+        for (const press of keys ?? []) {
+            const what = `${press.key} (overlay ${press.when === 'start' ? 'on' : 'off'})`;
+            if (dryRun) {
+                log('host', 'info', `${prefix}Would press ${what} (safe mode: nothing was pressed)`);
+            } else if (press.ok) {
+                log('host', 'success', `${prefix}Pressed ${what}`);
+            } else {
+                log('host', 'warning', `${prefix}Could not press ${what}: ${press.error ?? 'unknown error'}`);
+            }
+        }
     }
 
     private changed(): void {

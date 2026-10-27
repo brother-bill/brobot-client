@@ -7,15 +7,17 @@ import {
     type BanCompleteEvent,
     type LogSource,
     type LogTone,
+    type VoicebanKeys,
 } from '@brobot-client/shared';
 import { DryRunHostControl } from '../host/dry-run-host-control';
+import type { HostControl } from '../host/host-control';
 import { FakeClock, settle } from '../testing/fake-clock';
-import { CommandRunner, type CommandPolicy } from './command-runner';
+import { CommandRunner, type CommandPolicy, type CommandRunnerOptions } from './command-runner';
 
 describe('CommandRunner', () => {
     let clock: FakeClock;
     let host: DryRunHostControl;
-    let policy: { commands: Record<BanCommand, boolean>; paused: boolean };
+    let policy: { commands: Record<BanCommand, boolean>; paused: boolean; voicebanKeys: VoicebanKeys };
     let replies: BanCompleteEvent[];
     let logs: { source: LogSource; tone: LogTone; message: string }[];
     let active: (readonly ActiveBan[])[];
@@ -24,18 +26,20 @@ describe('CommandRunner', () => {
     beforeEach(() => {
         clock = new FakeClock();
         host = new DryRunHostControl(clock);
-        policy = { commands: { chatban: true, voiceban: true }, paused: false };
+        policy = { commands: { chatban: true, voiceban: true }, paused: false, voicebanKeys: { start: 'none', end: 'none' } };
         replies = [];
         logs = [];
         active = [];
-        runner = new CommandRunner({
-            clock,
-            host: () => host,
-            policy: (): CommandPolicy => policy,
-            reply: event => replies.push(event),
-            log: (source, tone, message) => logs.push({ source, tone, message }),
-            onActiveChange: bans => active.push(bans),
-        });
+        runner = new CommandRunner(options());
+    });
+
+    const options = (): CommandRunnerOptions => ({
+        clock,
+        host: () => host,
+        policy: (): CommandPolicy => policy,
+        reply: event => replies.push(event),
+        log: (source, tone, message) => logs.push({ source, tone, message }),
+        onActiveChange: bans => active.push(bans),
     });
 
     const messages = (): string[] => logs.map(l => l.message);
@@ -167,6 +171,98 @@ describe('CommandRunner', () => {
         await runner.test('chatban');
         expect(host.calls).toHaveLength(1);
         expect(logs.at(-1)?.message).toBe('Test skipped: a chatban is already running');
+    });
+
+    describe('the voiceban overlay keys', () => {
+        beforeEach(() => {
+            policy.voicebanKeys = { start: 'F8', end: 'F9' };
+        });
+
+        /** The dry run's timing, reporting itself as the real driver. */
+        const live = (): HostControl => ({
+            kind: 'windows',
+            blockEnter: ms => host.blockEnter(ms),
+            muteMicrophone: (ms, keys) => host.muteMicrophone(ms, keys),
+        });
+
+        it('in safe mode, says what it would press and presses nothing', async () => {
+            const done = runner.handle({ type: 'voiceban', durationMs: 30_000 });
+            await settle();
+            expect(host.calls[0]?.keys).toEqual({ start: 'F8', end: 'F9' });
+            clock.advance(30_000);
+            await done;
+            expect(messages()).toEqual([
+                'brobot asked for a voiceban (30 s)',
+                'Muted the microphone for 30 s (safe mode: nothing was touched)',
+                'Would press F8 (overlay on) (safe mode: nothing was pressed)',
+                'Microphone unmuted',
+                'Would press F9 (overlay off) (safe mode: nothing was pressed)',
+            ]);
+        });
+
+        it('logs F8 as the ban starts and F9 when its time is up', async () => {
+            runner = new CommandRunner({ ...options(), host: live });
+            const done = runner.handle({ type: 'voiceban', durationMs: 30_000 });
+            await settle();
+            expect(messages()).toContain('Pressed F8 (overlay on)');
+            expect(messages()).not.toContain('Pressed F9 (overlay off)');
+            clock.advance(30_000);
+            await done;
+            expect(messages().slice(-2)).toEqual(['Microphone unmuted — dry run', 'Pressed F9 (overlay off)']);
+            expect(replies).toEqual([{ type: 'voiceban_complete' }]);
+        });
+
+        it('logs F9 when the ban is stopped early (Release now, or the app quitting)', async () => {
+            runner = new CommandRunner({ ...options(), host: live });
+            const done = runner.handle({ type: 'voiceban', durationMs: 30_000 });
+            await settle();
+            runner.releaseAll();
+            await done;
+            expect(messages().at(-1)).toBe('Pressed F9 (overlay off)');
+        });
+
+        it('logs both keys for the Test button, which presses them for real outside safe mode', async () => {
+            runner = new CommandRunner({ ...options(), host: live });
+            const done = runner.test('voiceban');
+            await settle();
+            clock.advance(TEST_DURATION_MS);
+            await done;
+            expect(messages()).toContain('Test: Pressed F8 (overlay on)');
+            expect(messages().at(-1)).toBe('Test: Pressed F9 (overlay off)');
+        });
+
+        it('presses nothing for a chatban, or for keys set to none', async () => {
+            policy.voicebanKeys = { start: 'none', end: 'F9' };
+            const voice = runner.handle({ type: 'voiceban', durationMs: 1000 });
+            const chat = runner.handle({ type: 'chatban', durationMs: 1000 });
+            clock.advance(1000);
+            await Promise.all([voice, chat]);
+            expect(messages().filter(m => m.includes('press'))).toEqual([
+                'Would press F9 (overlay off) (safe mode: nothing was pressed)',
+            ]);
+        });
+
+        it('warns when Windows refused a key', async () => {
+            const refusing: HostControl = {
+                kind: 'windows',
+                blockEnter: ms => host.blockEnter(ms),
+                muteMicrophone: () => ({
+                    started: Promise.resolve({
+                        ok: true,
+                        keys: [{ when: 'start', key: 'F8', ok: false, error: 'Windows refused the key press (error 5)' }],
+                    }),
+                    done: Promise.resolve({ ok: true }),
+                    release: () => undefined,
+                }),
+            };
+            runner = new CommandRunner({ ...options(), host: () => refusing });
+            await runner.handle({ type: 'voiceban', durationMs: 1000 });
+            expect(logs).toContainEqual({
+                source: 'host',
+                tone: 'warning',
+                message: 'Could not press F8 (overlay on): Windows refused the key press (error 5)',
+            });
+        });
     });
 
     it('publishes the active list as it changes', async () => {

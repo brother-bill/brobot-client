@@ -21,6 +21,7 @@ const SNAPSHOT: ClientSnapshot = {
         serverUrl: 'wss://admin.brobot.live/api/ashketchum',
         hasSecret: true,
         commands: { chatban: true, voiceban: false },
+        voicebanKeys: { start: 'F8', end: 'F9' },
         safeMode: false,
         paused: false,
         startWithWindows: true,
