@@ -8,7 +8,7 @@
  * by `windows-host-control.spec.ts` on any OS.
  */
 
-import type { OverlayKeySetting, VoicebanKeys } from '@brobot-client/shared';
+import type { KeyCombo, KeyComboSetting, VoicebanKeys } from '@brobot-client/shared';
 import type { Clock } from '../core/clock';
 import type { HostAction, HostActionResult, HostControl, KeyPress } from './host-control';
 import {
@@ -76,6 +76,17 @@ export class WindowsHostControl implements HostControl {
     muteMicrophone(durationMs: number, keys: VoicebanKeys): HostAction {
         const script = muteMicrophoneScript(durationMs, this.options.parentPid, keys);
         return this.run(script, durationMs, 'microphone', keys);
+    }
+
+    /**
+     * The unmute shim with no devices to unmute: it presses the key and
+     * reports it the way a voiceban's end key is reported.
+     */
+    async pressKey(combo: KeyCombo): Promise<HostActionResult> {
+        const result = await this.restore([], combo);
+        const press = result.keys?.[0];
+        if (press === undefined) return result.ok ? { ok: false, error: 'PowerShell did not say it pressed the key' } : result;
+        return press.ok ? { ok: true } : { ok: false, error: press.error ?? 'Windows refused the key press' };
     }
 
     private run(script: string, durationMs: number, what: 'keyboard' | 'microphone', keys: VoicebanKeys): HostAction {
@@ -176,7 +187,7 @@ export class WindowsHostControl implements HostControl {
             // overlay did not, so put them back from here. The end key is
             // owed once the ban took hold (or its start key was pressed) and
             // the shim had not pressed it yet.
-            const owedKey: OverlayKeySetting =
+            const owedKey: KeyComboSetting =
                 endKeys.length === 0 && (ready || startKeys.length > 0) ? keys.end : 'none';
             if (mutedIds.length > 0 || owedKey !== 'none') {
                 void this.restore(mutedIds, owedKey).then(restored => {
@@ -229,7 +240,7 @@ export class WindowsHostControl implements HostControl {
      * Runs the unmute shim for devices a killed mute shim left muted, and
      * presses the overlay's end key it did not get to.
      */
-    private restore(ids: readonly string[], endKey: OverlayKeySetting): Promise<HostActionResult> {
+    private restore(ids: readonly string[], endKey: KeyComboSetting): Promise<HostActionResult> {
         return new Promise(resolve => {
             let stderrText = '';
             const pressed: KeyPress[] = [];

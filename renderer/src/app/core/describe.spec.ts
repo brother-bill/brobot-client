@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { INITIAL_CONNECTION_STATUS } from '@brobot-client/shared';
-import { describeConnection, formatAgo, formatCountdown } from './describe';
+import {
+    describeConnection,
+    describeShortcut,
+    formatAgo,
+    formatCountdown,
+    overlayNotice,
+    pressedReminder,
+} from './describe';
 
 const URL = 'wss://admin.brobot.live/api/ashketchum';
 
@@ -49,5 +56,31 @@ describe('formatCountdown / formatAgo', () => {
     it('says "just now" for the last second', () => {
         expect(formatAgo(400)).toBe('just now');
         expect(formatAgo(14_000)).toBe('14 s ago');
+    });
+});
+
+describe('key binding copy', () => {
+    it("tells the streamer exactly what Streamlabs/OBS must do before a voiceban key changes", () => {
+        expect(overlayNotice('voiceban_start', 'F10')).toBe(
+            'Streamlabs/OBS must have F10 bound to the overlay. Update the hotkey in Streamlabs → Settings → Hotkeys ' +
+                '(or OBS → Settings → Hotkeys) or the overlay will stop switching.',
+        );
+        expect(overlayNotice('voiceban_end', 'none')).toMatch(/^brobot will stop pressing a key as a voiceban ends/);
+    });
+
+    it('keeps a reminder beside each voiceban key', () => {
+        expect(pressedReminder('voiceban_start', 'F8')).toBe('Streamlabs/OBS must have F8 bound to show the voiceban overlay.');
+        expect(pressedReminder('voiceban_end', 'Ctrl+num9')).toBe(
+            'Streamlabs/OBS must have Ctrl+Num 9 bound to hide the voiceban overlay.',
+        );
+        expect(pressedReminder('voiceban_end', 'none')).toBe('Off: brobot presses nothing as a voiceban ends.');
+    });
+
+    it('says plainly when a shortcut is not working', () => {
+        expect(describeShortcut({ state: 'taken', combo: 'Ctrl+Alt+F4' })).toEqual({
+            text: expect.stringContaining('another app already uses Ctrl+Alt+F4') as string,
+            problem: true,
+        });
+        expect(describeShortcut({ state: 'active', combo: 'Ctrl+Alt+F5' }).problem).toBe(false);
     });
 });

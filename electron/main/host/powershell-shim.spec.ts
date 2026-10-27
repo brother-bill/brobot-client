@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
+import { BINDING_KEYS } from '@brobot-client/shared';
 import {
     blockEnterScript,
     encodePowerShellCommand,
     isDeviceId,
+    keyCodeOf,
     muteMicrophoneScript,
     powershellArgs,
     unmuteScript,
-    virtualKeyOf,
 } from './powershell-shim';
 
 const KEYS = { start: 'F8', end: 'F9' } as const;
@@ -86,17 +87,38 @@ describe('the PowerShell shim', () => {
     });
 
     it('passes the overlay keys as Windows virtual-key codes, 0 for none', () => {
-        expect(virtualKeyOf('F1')).toBe(0x70);
-        expect(virtualKeyOf('F8')).toBe(0x77);
-        expect(virtualKeyOf('F9')).toBe(0x78);
-        expect(virtualKeyOf('F24')).toBe(0x87);
-        expect(virtualKeyOf('none')).toBe(0);
-        expect(() => virtualKeyOf('Enter' as never)).toThrow();
+        expect(keyCodeOf('F1')).toBe(0x70);
+        expect(keyCodeOf('F8')).toBe(0x77);
+        expect(keyCodeOf('F9')).toBe(0x78);
+        expect(keyCodeOf('F24')).toBe(0x87);
+        expect(keyCodeOf('none')).toBe(0);
+        expect(() => keyCodeOf('Enter')).toThrow();
         expect(muteMicrophoneScript(1000, 1, KEYS).split('\n').at(-1)).toBe(
             'exit [Brobot.Shim]::MuteMicrophone(1000, 1, 119, 120)',
         );
         expect(muteMicrophoneScript(1000, 1, { start: 'none', end: 'none' })).toContain('MuteMicrophone(1000, 1, 0, 0)');
         expect(unmuteScript([], 'F9')).toContain('Unmute([string[]]@(), 120)');
+    });
+
+    it('adds a bit for each modifier held around the key, and one for an extended key', () => {
+        expect(keyCodeOf('Ctrl+A')).toBe(0x41 | 0x100);
+        expect(keyCodeOf('Ctrl+Alt+F8')).toBe(0x77 | 0x100 | 0x200);
+        expect(keyCodeOf('Alt+Shift+7')).toBe(0x37 | 0x200 | 0x400);
+        expect(keyCodeOf('Alt+num7')).toBe(0x67 | 0x200);
+        expect(keyCodeOf('Ctrl+numdiv')).toBe(0x6f | 0x100 | 0x800);
+        expect(keyCodeOf('Ctrl+Up')).toBe(0x26 | 0x100 | 0x800);
+        expect(keyCodeOf('Ctrl+Space')).toBe(0x20 | 0x100);
+        // Every key a binding may use has a code.
+        for (const key of BINDING_KEYS) expect(keyCodeOf(`Ctrl+${key}`) & 0xff).toBeGreaterThan(0);
+
+        const csharp = csharpOf(muteMicrophoneScript(1000, 1, KEYS));
+        const press = csharp.slice(csharp.indexOf('private static void PressKey('), csharp.indexOf('private const int eCapture'));
+        // Modifiers down before the key and up after it, even when the key was refused.
+        expect(press.indexOf('SendKey(ModifierVks[i], false, false)')).toBeLessThan(press.indexOf('SendKey(vk, false, extended)'));
+        expect(press.indexOf('SendKey(vk, true, extended)')).toBeLessThan(press.indexOf('SendKey(held[i], true, false)'));
+        expect(press.indexOf('SendKey(held[i], true, false)')).toBeLessThan(press.indexOf('if (error != 0)'));
+        expect(csharp).toContain('KEYEVENTF_EXTENDEDKEY = 0x0001');
+        expect(csharp).toContain('new int[] { 0x11, 0x12, 0x10 }');
     });
 
     it('presses the start key once muted and the end key once restored, on every way out', () => {

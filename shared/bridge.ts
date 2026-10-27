@@ -10,6 +10,7 @@
  */
 
 import type { ClientSnapshot, LogEntry } from './client-state';
+import type { BindingCheck, KeyBindingId, KeyComboSetting } from './key-bindings';
 import type { BanCommand } from './server-events';
 import type { SettingsPatch } from './settings';
 import type { UpdateStatus } from './update-state';
@@ -29,6 +30,19 @@ export interface HostOperations {
     'settings.setSecret': { req: { secret: string }; res: ClientSnapshot };
     /** Runs the host action once for `TEST_DURATION_MS`; nothing is sent to brobot. */
     'command.test': { req: { command: BanCommand }; res: void };
+    /**
+     * Whether `combo` may become `binding`: the shared rules, plus — for a
+     * shortcut — whether Windows would let brobot register it.
+     */
+    'keyBindings.check': { req: { binding: KeyBindingId; combo: KeyComboSetting }; res: BindingCheck };
+    /**
+     * `active: true` lets go of the shortcuts while the window waits for a new
+     * combination (or it would send a marker instead of seeing the keys);
+     * `false` takes them back. They come back by themselves after a minute.
+     */
+    'keyBindings.capture': { req: { active: boolean }; res: void };
+    /** A shortcut: sends its event, as if pressed. A voiceban key: presses it once. Safe mode only logs. */
+    'keyBindings.test': { req: { binding: KeyBindingId }; res: void };
     /** Ends every ban in progress now: unblocks Enter, restores the mic. */
     'command.releaseAll': { req: void; res: void };
     /** Drops the current socket (if any) and connects again immediately. */
@@ -52,6 +66,9 @@ export const OPERATION_NAMES = [
     'settings.update',
     'settings.setSecret',
     'command.test',
+    'keyBindings.check',
+    'keyBindings.capture',
+    'keyBindings.test',
     'command.releaseAll',
     'connection.reconnect',
     'log.clear',

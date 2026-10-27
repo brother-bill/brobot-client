@@ -1,4 +1,4 @@
-// Copied verbatim from brother-bill/brobot @ feat/sleep-tight-gate (horror run, chat and preview frames),
+// Copied verbatim from brother-bill/brobot @ 9968ced (the streamer hotkeys: create_marker, create_prediction, play_ad),
 // src/modules/twitch/streamer-events.ts. Do not edit here without making the
 // same change there: this file IS the wire contract, and the two copies are
 // how the client and the server agree on it. The client-side half (parsing
@@ -26,6 +26,16 @@ export const STREAMER_SOCKET_PATH = '/api/ashketchum';
 /** How long each ban lasts. The chat copy promises these numbers. */
 export const CHATBAN_DURATION_MS = 5 * 60 * 1000;
 export const VOICEBAN_DURATION_MS = 30 * 1000;
+
+/**
+ * The streamer's hotkeys on the client, each a Helix call brobot makes as the streamer: `create_marker` (a stream
+ * marker, no description), `create_prediction` (the configured prediction) and `play_ad` (a 30 s commercial).
+ */
+export const STREAMER_HOTKEYS = ['create_marker', 'create_prediction', 'play_ad'] as const;
+export type StreamerHotkey = (typeof STREAMER_HOTKEYS)[number];
+
+/** brobot runs each hotkey at most once in this long; a repeat inside it is answered with an error and not run. */
+export const HOTKEY_REPEAT_MS = 5_000;
 
 // ── brobot → client ──────────────────────────────────────────────────────
 
@@ -91,7 +101,23 @@ export interface HorrorChatEvent {
     text: string;
 }
 
-export type StreamerServerEvent = ChatbanEvent | VoicebanEvent | PingEvent | HorrorEvent | HorrorChatEvent;
+/**
+ * The answer to one {@link HotkeyEvent}, to the client that sent it: no `error` means Twitch did it. `error` is a short
+ * line for the streamer ("not live", "a prediction is already running", "missing scope channel:edit:commercial: link
+ * the streamer account again", …).
+ */
+export interface HotkeyCompleteEvent {
+    type: `${StreamerHotkey}_complete`;
+    error?: string;
+}
+
+export type StreamerServerEvent =
+    | ChatbanEvent
+    | VoicebanEvent
+    | PingEvent
+    | HorrorEvent
+    | HorrorChatEvent
+    | HotkeyCompleteEvent;
 
 // ── client → brobot ──────────────────────────────────────────────────────
 
@@ -134,7 +160,16 @@ export interface HorrorPreviewEvent {
     name?: string;
 }
 
-export type StreamerClientEvent = BanCompleteEvent | PongEvent | HorrorRunEvent | HorrorPreviewEvent;
+/** The streamer pressed a hotkey. brobot answers with {@link HotkeyCompleteEvent}. Any other field is ignored. */
+export interface HotkeyEvent {
+    type: StreamerHotkey;
+}
+
+export type StreamerClientEvent = BanCompleteEvent | PongEvent | HorrorRunEvent | HorrorPreviewEvent | HotkeyEvent;
+
+export function isHotkeyEvent(event: StreamerClientEvent): event is HotkeyEvent {
+    return (STREAMER_HOTKEYS as readonly string[]).includes(event.type);
+}
 
 /** Parses one frame from the client; null for anything malformed or unknown. */
 export function parseStreamerClientEvent(frame: string): StreamerClientEvent | null {
@@ -164,6 +199,10 @@ export function parseStreamerClientEvent(frame: string): StreamerClientEvent | n
             return typeof record.name === 'string' && record.name.length > 0
                 ? { type: 'horror_preview', dream: record.dream.slice(0, 32), name: record.name.slice(0, 64) }
                 : { type: 'horror_preview', dream: record.dream.slice(0, 32) };
+        case 'create_marker':
+        case 'create_prediction':
+        case 'play_ad':
+            return { type: record.type };
         default:
             return null;
     }

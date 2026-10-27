@@ -4,12 +4,16 @@
  */
 
 import {
+    describeCombo,
     formatDuration,
     serverHost,
     type BanCommand,
     type ConnectionStatus,
+    type KeyComboSetting,
     type LogSource,
     type LogTone,
+    type PressedBinding,
+    type ShortcutStatus,
 } from '@brobot-client/shared';
 import type { LibLiveDotState } from '@singularity/ngx-ui';
 
@@ -93,3 +97,43 @@ export const TONE_LABEL: Readonly<Record<LogTone, string>> = {
     warning: 'Warning:',
     error: 'Error:',
 };
+
+/** Under a shortcut: whether it is listening, in words. */
+export function describeShortcut(status: ShortcutStatus): { readonly text: string; readonly problem: boolean } {
+    switch (status.state) {
+        case 'active':
+            return { text: 'Listening: works in any app or game.', problem: false };
+        case 'off':
+            return { text: 'Off.', problem: false };
+        case 'paused':
+            return { text: 'Paused while you pick a new key.', problem: false };
+        case 'taken':
+            return {
+                text: `Not working: another app already uses ${describeCombo(status.combo)}, so Windows will not give it to brobot. Change it, or free it in that app.`,
+                problem: true,
+            };
+    }
+}
+
+/** Under a voiceban key, always: what Streamlabs/OBS has to do with it. */
+export function pressedReminder(binding: PressedBinding, combo: KeyComboSetting): string {
+    const moment = binding === 'voiceban_start' ? 'starts' : 'ends';
+    if (combo === 'none') return `Off: brobot presses nothing as a voiceban ${moment}.`;
+    const action = binding === 'voiceban_start' ? 'show' : 'hide';
+    return `Streamlabs/OBS must have ${describeCombo(combo)} bound to ${action} the voiceban overlay.`;
+}
+
+/** Before a voiceban key changes: the stream software has to change with it. */
+export function overlayNotice(binding: PressedBinding, combo: KeyComboSetting): string {
+    if (combo === 'none') {
+        const moment = binding === 'voiceban_start' ? 'starts' : 'ends';
+        return (
+            `brobot will stop pressing a key as a voiceban ${moment}. If Streamlabs/OBS switches the overlay ` +
+            'with that key, the overlay will stop switching.'
+        );
+    }
+    return (
+        `Streamlabs/OBS must have ${describeCombo(combo)} bound to the overlay. Update the hotkey in ` +
+        'Streamlabs → Settings → Hotkeys (or OBS → Settings → Hotkeys) or the overlay will stop switching.'
+    );
+}

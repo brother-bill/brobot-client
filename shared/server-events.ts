@@ -83,6 +83,14 @@ export function parseStreamerServerEvent(frame: string): StreamerServerEvent | n
             if (typeof text !== 'string' || text.length === 0) return null;
             return { type: 'horror_chat', user: typeof user === 'string' ? user.slice(0, 64) : '', text: text.slice(0, 300) };
         }
+        case 'create_marker_complete':
+        case 'create_prediction_complete':
+        case 'play_ad_complete': {
+            // brobot's answer to one of the streamer's hotkeys: no `error` means Twitch did it.
+            const type = record['type'];
+            const error = record['error'];
+            return typeof error === 'string' && error.length > 0 ? { type, error: error.slice(0, 300) } : { type };
+        }
         case 'ping': {
             const sentAt = record['sentAt'];
             return typeof sentAt === 'number' && Number.isFinite(sentAt) ? { type: 'ping', sentAt } : null;

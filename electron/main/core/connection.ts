@@ -21,6 +21,7 @@ import {
     type ChatbanEvent,
     type HorrorChatEvent,
     type HorrorEvent,
+    type HotkeyCompleteEvent,
     type ConnectionStatus,
     type LogTone,
     type StreamerClientEvent,
@@ -63,6 +64,8 @@ export interface ConnectionOptions {
     readonly onHorror?: (event: HorrorEvent) => void;
     /** A chat line for the horror game (brobot's SLEEP TIGHT rehearsal / live modes). */
     readonly onHorrorChat?: (event: HorrorChatEvent) => void;
+    /** brobot's answer to one of the streamer's shortcuts (marker, prediction, ad). */
+    readonly onHotkeyComplete?: (event: HotkeyCompleteEvent) => void;
     readonly onLog: (tone: LogTone, message: string) => void;
     readonly random?: () => number;
     readonly policy?: BackoffPolicy;
@@ -236,7 +239,11 @@ export class ConnectionManager {
             this.options.onHorrorChat?.(event);
             return;
         }
-        this.options.onBan(event);
+        if (event.type === 'chatban' || event.type === 'voiceban') {
+            this.options.onBan(event);
+            return;
+        }
+        this.options.onHotkeyComplete?.(event);
     }
 
     /** Any sign of life from the server pushes the dead-man timer back. */

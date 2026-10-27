@@ -6,9 +6,12 @@
 
 import {
     BAN_COMMANDS,
-    isOverlayKeySetting,
+    KEY_BINDING_IDS,
+    isKeyBindingId,
+    normalizeComboSetting,
     type BanCommand,
-    type OverlayKeySetting,
+    type KeyBindingId,
+    type KeyComboSetting,
     type OperationName,
     type OperationRequest,
     type OperationResponse,
@@ -27,6 +30,10 @@ export function createHandlers(controller: ClientController, updater: Updater): 
         'settings.update': async request => controller.updateSettings(validPatch(request)),
         'settings.setSecret': async request => controller.setSecret(validSecret(request)),
         'command.test': async request => controller.test(validCommand(field(request, 'command'))),
+        'keyBindings.check': async request =>
+            controller.checkBinding(validBinding(field(request, 'binding')), validCombo(field(request, 'combo'))),
+        'keyBindings.capture': async request => controller.captureKeys(field(request, 'active') === true),
+        'keyBindings.test': async request => controller.testBinding(validBinding(field(request, 'binding'))),
         'command.releaseAll': async () => controller.releaseAll(),
         'connection.reconnect': async () => controller.reconnect(),
         'log.clear': async () => controller.clearLog(),
@@ -58,13 +65,13 @@ function validPatch(request: unknown): SettingsPatch {
         }
         patch.commands = commands;
     }
-    if (typeof r['voicebanKeys'] === 'object' && r['voicebanKeys'] !== null) {
-        const keys: { start?: OverlayKeySetting; end?: OverlayKeySetting } = {};
-        for (const when of ['start', 'end'] as const) {
-            const value = (r['voicebanKeys'] as Record<string, unknown>)[when];
-            if (isOverlayKeySetting(value)) keys[when] = value;
+    if (typeof r['keyBindings'] === 'object' && r['keyBindings'] !== null) {
+        const bindings: Partial<Record<KeyBindingId, KeyComboSetting>> = {};
+        for (const id of KEY_BINDING_IDS) {
+            const value = (r['keyBindings'] as Record<string, unknown>)[id];
+            if (value !== undefined) bindings[id] = validCombo(value);
         }
-        patch.voicebanKeys = keys;
+        patch.keyBindings = bindings;
     }
     return patch;
 }
@@ -83,4 +90,15 @@ function validSecret(request: unknown): string {
 function validCommand(value: unknown): BanCommand {
     if ((BAN_COMMANDS as readonly unknown[]).includes(value)) return value as BanCommand;
     throw new Error(`unknown command: ${String(value)}`);
+}
+
+function validBinding(value: unknown): KeyBindingId {
+    if (isKeyBindingId(value)) return value;
+    throw new Error(`unknown key binding: ${String(value)}`);
+}
+
+function validCombo(value: unknown): KeyComboSetting {
+    const combo = normalizeComboSetting(value);
+    if (combo === null) throw new Error(`brobot does not know the key combination "${String(value).slice(0, 64)}".`);
+    return combo;
 }

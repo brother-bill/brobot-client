@@ -31,8 +31,9 @@
  * ## The overlay keys
  *
  * A voiceban also presses a key as it starts and another as it ends (F8 and F9
- * by default): Streamlabs Desktop has them bound as global hotkeys that show
- * and hide its voiceban overlay. They are pressed with `SendInput` by the mute
+ * by default, or any combination set under Key bindings, Ctrl/Alt/Shift held
+ * around the key): Streamlabs Desktop has them bound as global hotkeys that
+ * show and hide its voiceban overlay. They are pressed with `SendInput` by the mute
  * shim itself — after muting, and after restoring — so the end key goes with
  * the unmute on every path: duration over, `stop`, the app gone. The unmute
  * fallback presses it too when a killed shim had not.
@@ -42,7 +43,7 @@
  * `?.` and expression-bodied members.
  */
 
-import { OVERLAY_KEYS, type OverlayKeySetting, type VoicebanKeys } from '@brobot-client/shared';
+import { parseCombo, type KeyComboSetting, type Modifier, type VoicebanKeys } from '@brobot-client/shared';
 
 /** Printed once the hook is installed / the mic is muted. */
 export const SHIM_READY = 'READY';
@@ -267,36 +268,57 @@ public static class Shim {
     private static extern uint MapVirtualKey(uint uCode, uint uMapType);
 
     private const uint INPUT_KEYBOARD = 1;
+    private const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
     private const uint KEYEVENTF_KEYUP = 0x0002;
     // Long enough for a hotkey listener that polls the key state (OBS's
     // polls every 25 ms) to see the key down.
     private const int KEY_HOLD_MS = 60;
+    // Ctrl, Alt and Shift, in the order of their bits in a key code.
+    private static readonly int[] ModifierVks = new int[] { 0x11, 0x12, 0x10 };
 
-    private static int SendKey(int vk, bool up) {
+    private static int SendKey(int vk, bool up, bool extended) {
         INPUT[] input = new INPUT[1];
         input[0].type = INPUT_KEYBOARD;
         input[0].u.ki.wVk = (ushort)vk;
         input[0].u.ki.wScan = (ushort)MapVirtualKey((uint)vk, 0);
-        input[0].u.ki.dwFlags = up ? KEYEVENTF_KEYUP : 0;
+        input[0].u.ki.dwFlags = (up ? KEYEVENTF_KEYUP : 0) | (extended ? KEYEVENTF_EXTENDEDKEY : 0);
         if (SendInput(1, input, Marshal.SizeOf(typeof(INPUT))) == 1) return 0;
         int error = Marshal.GetLastWin32Error();
         return error == 0 ? -1 : error;
     }
 
-    // One overlay key: down, held, up. vk 0 is "none". "when" is START or END,
-    // reported back so the app can log it.
-    private static void PressKey(int vk, string when) {
-        if (vk == 0) return;
-        int error = SendKey(vk, false);
+    // One overlay key, as the app encodes it: the virtual key in the low byte,
+    // 0x100 / 0x200 / 0x400 for Ctrl / Alt / Shift held around it, and 0x800
+    // for a key Windows sends as extended (arrows, Insert, Home...). 0 is
+    // "none". Modifiers down, key down, held, key up, modifiers up. "when" is
+    // START or END, reported back so the app can log it.
+    private static void PressKey(int code, string when) {
+        if (code == 0) return;
+        int vk = code & 0xFF;
+        bool extended = (code & 0x800) != 0;
+        List<int> held = new List<int>();
+        int error = 0;
+        for (int i = 0; i < ModifierVks.Length && error == 0; i++) {
+            if ((code & (0x100 << i)) == 0) continue;
+            error = SendKey(ModifierVks[i], false, false);
+            if (error == 0) held.Add(ModifierVks[i]);
+        }
+        if (error == 0) error = SendKey(vk, false, extended);
+        if (error == 0) {
+            Thread.Sleep(KEY_HOLD_MS);
+            // A key left down would be stuck for every other app: try twice.
+            if (SendKey(vk, true, extended) != 0) {
+                Thread.Sleep(KEY_HOLD_MS);
+                SendKey(vk, true, extended);
+            }
+        }
+        // The same for a modifier, even when the key itself was refused.
+        for (int i = held.Count - 1; i >= 0; i--) {
+            if (SendKey(held[i], true, false) != 0) SendKey(held[i], true, false);
+        }
         if (error != 0) {
             Say("${SHIM_NOT_PRESSED_PREFIX}" + when + " Windows refused the key press (error " + error + ")");
             return;
-        }
-        Thread.Sleep(KEY_HOLD_MS);
-        // A key left down would be stuck for every other app: try twice.
-        if (SendKey(vk, true) != 0) {
-            Thread.Sleep(KEY_HOLD_MS);
-            SendKey(vk, true);
         }
         Say("${SHIM_PRESSED_PREFIX}" + when);
     }
@@ -320,7 +342,8 @@ public static class Shim {
     // Mutes the default recording device for both roles Windows keeps one for
     // (Console and Communications; usually the same device), remembering which
     // were not muted already, and restores exactly those. The overlay keys go
-    // either side: startVk once muted, endVk once restored (0 for none).
+    // either side: startVk once muted, endVk once restored (key codes as
+    // PressKey reads them, 0 for none).
     public static int MuteMicrophone(int milliseconds, int parentPid, int startVk, int endVk) {
         IMMDeviceEnumerator enumerator = Enumerator();
         List<string> seen = new List<string>();
@@ -358,7 +381,8 @@ public static class Shim {
     }
 
     // After a mute shim was killed: unmute what it muted, and press the end
-    // key it did not get to (0 for none).
+    // key it did not get to (0 for none). With no ids it only presses the
+    // key, which is the window's Test button for a voiceban key.
     public static int Unmute(string[] ids, int endVk) {
         IMMDeviceEnumerator enumerator = Enumerator();
         Guid context = Guid.Empty;
@@ -410,18 +434,65 @@ export function blockEnterScript(durationMs: number, parentPid: number): string 
     return wrap(`[Brobot.Shim]::BlockEnter(${wholeMilliseconds(durationMs)}, ${processId(parentPid)})`);
 }
 
-/** The Windows virtual-key code for an overlay key: VK_F1 is 0x70, VK_F24 0x87. `none` is 0. */
-export function virtualKeyOf(key: OverlayKeySetting): number {
-    if (key === 'none') return 0;
-    const index = OVERLAY_KEYS.indexOf(key);
-    if (index === -1) throw new Error(`not an overlay key: ${JSON.stringify(key)}`);
-    return 0x70 + index;
+const MODIFIER_BITS: Readonly<Record<Modifier, number>> = { Ctrl: 0x100, Alt: 0x200, Shift: 0x400 };
+const EXTENDED_BIT = 0x800;
+
+/** Virtual-key codes for the keys that are not a plain run (F1 0x70, A 0x41, 0 0x30, Num 0 0x60). */
+const VIRTUAL_KEYS: Readonly<Partial<Record<string, number>>> = {
+    numadd: 0x6b,
+    numsub: 0x6d,
+    nummult: 0x6a,
+    numdiv: 0x6f,
+    numdec: 0x6e,
+    Insert: 0x2d,
+    Delete: 0x2e,
+    Home: 0x24,
+    End: 0x23,
+    PageUp: 0x21,
+    PageDown: 0x22,
+    Left: 0x25,
+    Up: 0x26,
+    Right: 0x27,
+    Down: 0x28,
+    Space: 0x20,
+};
+
+/**
+ * Keys that `SendInput` must flag as extended, or Windows takes them for
+ * their numpad twins (Home for Num 7, and so on).
+ */
+const EXTENDED_KEYS = new Set(['Insert', 'Delete', 'Home', 'End', 'PageUp', 'PageDown', 'Left', 'Up', 'Right', 'Down', 'numdiv']);
+
+function virtualKeyOf(key: string): number {
+    const fn = /^F(\d+)$/.exec(key);
+    if (fn !== null) return 0x6f + Number(fn[1]);
+    if (/^[A-Z0-9]$/.test(key)) return key.charCodeAt(0);
+    const numpad = /^num(\d)$/.exec(key);
+    if (numpad !== null) return 0x60 + Number(numpad[1]);
+    const vk = VIRTUAL_KEYS[key];
+    if (vk === undefined) throw new Error(`no virtual key for ${JSON.stringify(key)}`);
+    return vk;
+}
+
+/**
+ * A key binding as the shim's `PressKey` reads it: the Windows virtual-key
+ * code (VK_F8 is 0x77) in the low byte, a bit each for Ctrl, Alt and Shift,
+ * and one for an extended key. `none` is 0.
+ */
+export function keyCodeOf(setting: KeyComboSetting): number {
+    if (setting === 'none') return 0;
+    const combo = parseCombo(setting);
+    if (combo === null) throw new Error(`not a key combination: ${JSON.stringify(setting)}`);
+    let code = virtualKeyOf(combo.key);
+    for (const modifier of combo.modifiers) code |= MODIFIER_BITS[modifier];
+    if (EXTENDED_KEYS.has(combo.key)) code |= EXTENDED_BIT;
+    return code;
 }
 
 export function muteMicrophoneScript(durationMs: number, parentPid: number, keys: VoicebanKeys): string {
     const ms = wholeMilliseconds(durationMs);
     const pid = processId(parentPid);
-    return wrap(`[Brobot.Shim]::MuteMicrophone(${ms}, ${pid}, ${virtualKeyOf(keys.start)}, ${virtualKeyOf(keys.end)})`);
+    return wrap(`[Brobot.Shim]::MuteMicrophone(${ms}, ${pid}, ${keyCodeOf(keys.start)}, ${keyCodeOf(keys.end)})`);
 }
 
 /**
@@ -434,13 +505,16 @@ export function isDeviceId(value: string): boolean {
     return DEVICE_ID.test(value);
 }
 
-/** Unmutes `deviceIds`, then presses `endKey` (the overlay off) unless it is `none`. */
-export function unmuteScript(deviceIds: readonly string[], endKey: OverlayKeySetting): string {
+/**
+ * Unmutes `deviceIds`, then presses `endKey` (the overlay off) unless it is
+ * `none`. With no devices it is a single key press.
+ */
+export function unmuteScript(deviceIds: readonly string[], endKey: KeyComboSetting): string {
     for (const id of deviceIds) {
         if (!isDeviceId(id)) throw new Error(`refusing an unexpected device id: ${JSON.stringify(id)}`);
     }
     const list = deviceIds.map(id => `'${id}'`).join(',');
-    return wrap(`[Brobot.Shim]::Unmute([string[]]@(${list}), ${virtualKeyOf(endKey)})`);
+    return wrap(`[Brobot.Shim]::Unmute([string[]]@(${list}), ${keyCodeOf(endKey)})`);
 }
 
 /**
