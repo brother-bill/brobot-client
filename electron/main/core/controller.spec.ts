@@ -6,6 +6,7 @@ import type { SocketHandlers } from './connection';
 import { ClientController, type LoginItems, type SettingsStore } from './controller';
 import { chatRelayLine, parseGameLine, parseGamePreview, type HorrorPreview, type HorrorRun } from './game-relay';
 import { DEFAULT_SETTINGS, type StoredSettings } from './settings-file';
+import type { GlobalShortcuts } from './shortcuts';
 
 class MemoryStore implements SettingsStore {
     secureStorageAvailable = true;
@@ -24,6 +25,23 @@ class MemoryStore implements SettingsStore {
     }
     writeSecret(secret: string | null): void {
         this.secret = secret;
+    }
+}
+
+/** Windows' hotkey table, as `globalShortcut` sees it: `taken` is what other apps hold. */
+class FakeShortcuts implements GlobalShortcuts {
+    readonly registered = new Map<string, () => void>();
+    readonly taken = new Set<string>();
+    register(combo: string, onPress: () => void): boolean {
+        if (this.taken.has(combo) || this.registered.has(combo)) return false;
+        this.registered.set(combo, onPress);
+        return true;
+    }
+    unregister(combo: string): void {
+        this.registered.delete(combo);
+    }
+    press(combo: string): void {
+        this.registered.get(combo)?.();
     }
 }
 
@@ -49,6 +67,8 @@ describe('ClientController', () => {
     let gameSays: ((run: HorrorRun) => void) | null;
     let gamePreviews: ((preview: HorrorPreview) => void) | null;
     let chatToGame: string[];
+    let shortcuts: FakeShortcuts;
+    let notifications: string[];
 
     const create = (options: { windows?: boolean; loginSupported?: boolean } = {}): ClientController => {
         const loginItems: LoginItems = {
@@ -75,6 +95,8 @@ describe('ClientController', () => {
             },
             emitSnapshot: snapshot => snapshots.push(snapshot),
             emitLog: entry => logs.push(entry),
+            shortcuts,
+            notify: (title, body) => notifications.push(`${title} | ${body}`),
             gameRelay: {
                 send: (line, onResult) => {
                     relayed.push(line);
@@ -107,6 +129,140 @@ describe('ClientController', () => {
         gameSays = null;
         gamePreviews = null;
         chatToGame = [];
+        shortcuts = new FakeShortcuts();
+        notifications = [];
+    });
+
+    describe('key bindings', () => {
+        /** Set up, started and connected. */
+        const connected = (): ClientController => {
+            store.secret = 's3cret';
+            const controller = create();
+            controller.start();
+            sockets[0]?.handlers.onOpen();
+            return controller;
+        };
+
+        it("listens for the old client's Ctrl+Alt+F5 / F4 / F7 once started, and sends what each one is for", () => {
+            const controller = connected();
+            expect([...shortcuts.registered.keys()]).toEqual(['Ctrl+Alt+F5', 'Ctrl+Alt+F4', 'Ctrl+Alt+F7']);
+            expect(controller.snapshot().shortcuts.create_marker).toEqual({ state: 'active', combo: 'Ctrl+Alt+F5' });
+            shortcuts.press('Ctrl+Alt+F5');
+            shortcuts.press('Ctrl+Alt+F4');
+            shortcuts.press('Ctrl+Alt+F7');
+            expect(sockets[0]?.sent).toEqual([
+                '{"type":"create_marker"}',
+                '{"type":"create_prediction"}',
+                '{"type":"play_ad"}',
+            ]);
+        });
+
+        it("shows brobot's answer in the log and as a notification", () => {
+            connected();
+            shortcuts.press('Ctrl+Alt+F7');
+            sockets[0]?.handlers.onMessage('{"type":"play_ad_complete","error":"not live"}');
+            expect(logs.at(-1)).toMatchObject({ source: 'bot', tone: 'error', message: 'No ad break: not live' });
+            expect(notifications.at(-1)).toBe('No ad break | not live');
+            shortcuts.press('Ctrl+Alt+F5');
+            sockets[0]?.handlers.onMessage('{"type":"create_marker_complete"}');
+            expect(logs.at(-1)).toMatchObject({ tone: 'success', message: 'Stream marker created' });
+        });
+
+        it('says clearly when another app owns a combination, in the log, a notification and the snapshot', () => {
+            shortcuts.taken.add('Ctrl+Alt+F4');
+            const controller = connected();
+            expect(controller.snapshot().shortcuts.create_prediction).toEqual({ state: 'taken', combo: 'Ctrl+Alt+F4' });
+            expect(logs.some(l => l.tone === 'error' && l.message.includes('Ctrl+Alt+F4 is not working'))).toBe(true);
+            expect(notifications).toEqual([
+                'Prediction shortcut not working | Another app already uses Ctrl+Alt+F4. Pick another in brobot → Settings → Key bindings.',
+            ]);
+            // Moving it somewhere free fixes it.
+            controller.updateSettings({ keyBindings: { create_prediction: 'Ctrl+Alt+F6' } });
+            expect(controller.snapshot().shortcuts.create_prediction.state).toBe('active');
+            expect(shortcuts.registered.has('Ctrl+Alt+F6')).toBe(true);
+            expect(shortcuts.registered.has('Ctrl+Alt+F4')).toBe(false);
+        });
+
+        it('re-registers on a change, and lets go of a binding switched off', () => {
+            const controller = connected();
+            controller.updateSettings({ keyBindings: { create_marker: 'Ctrl+Shift+F5', play_ad: 'none' } });
+            expect([...shortcuts.registered.keys()].sort()).toEqual(['Ctrl+Alt+F4', 'Ctrl+Shift+F5']);
+            expect(controller.snapshot().shortcuts.play_ad).toEqual({ state: 'off', combo: 'none' });
+            expect(logs.map(l => l.message)).toEqual(
+                expect.arrayContaining(['Marker shortcut set to Ctrl+Shift+F5', 'Ad shortcut off']),
+            );
+        });
+
+        it('refuses a duplicate, a bare letter or Enter, and saves nothing', () => {
+            const controller = connected();
+            const saves = store.saves;
+            expect(() => controller.updateSettings({ keyBindings: { play_ad: 'F8' } })).toThrow(/already the Voiceban start key/);
+            expect(() => controller.updateSettings({ keyBindings: { voiceban_end: 'Ctrl+Alt+F5' } })).toThrow(/Marker/);
+            expect(() => controller.updateSettings({ keyBindings: { create_marker: 'M' } })).toThrow(/Add Ctrl or Alt/);
+            expect(() => controller.updateSettings({ keyBindings: { voiceban_start: 'Ctrl+Enter' } })).toThrow(/chat ban/);
+            expect(store.saves).toBe(saves);
+            expect(store.settings.keyBindings).toEqual(DEFAULT_SETTINGS.keyBindings);
+        });
+
+        it('checks a combination before it is saved: errors, common defaults, and whether Windows would give it', () => {
+            const controller = connected();
+            expect(controller.checkBinding('create_marker', 'F9').errors).toHaveLength(1);
+            expect(controller.checkBinding('create_marker', 'Ctrl+Shift+M').warnings).toEqual([
+                "Ctrl+Shift+M is Discord's Toggle Mute by default, so pressing it may set that off too.",
+            ]);
+            shortcuts.taken.add('Ctrl+Alt+F11');
+            expect(controller.checkBinding('create_marker', 'Ctrl+Alt+F11').warnings[0]).toMatch(/Another app already uses Ctrl\+Alt\+F11/);
+            expect(shortcuts.registered.has('Ctrl+Alt+F12')).toBe(false);
+            expect(controller.checkBinding('create_marker', 'Ctrl+Alt+F12')).toEqual({ errors: [], warnings: [] });
+            // The probe let go of what it tried.
+            expect(shortcuts.registered.has('Ctrl+Alt+F12')).toBe(false);
+            // A voiceban key is pressed, not registered: no probe.
+            expect(controller.checkBinding('voiceban_start', 'Ctrl+Alt+F11')).toEqual({ errors: [], warnings: [] });
+        });
+
+        it('lets go of the shortcuts while the window captures a key, and takes them back after', () => {
+            const controller = connected();
+            controller.captureKeys(true);
+            expect(shortcuts.registered.size).toBe(0);
+            expect(controller.snapshot().shortcuts.create_marker.state).toBe('paused');
+            controller.captureKeys(false);
+            expect(shortcuts.registered.size).toBe(3);
+            // And by themselves when the window never says it is done.
+            controller.captureKeys(true);
+            clock.advance(60_000);
+            expect(shortcuts.registered.size).toBe(3);
+        });
+
+        it('tests a shortcut by sending it, de-duped like a press; safe mode only logs', () => {
+            const controller = connected();
+            void controller.testBinding('create_marker');
+            void controller.testBinding('create_marker');
+            expect(sockets[0]?.sent).toEqual(['{"type":"create_marker"}']);
+            expect(logs.at(-1)?.message).toBe('Test: Marker pressed again within 5 s; ignored');
+            controller.updateSettings({ safeMode: true });
+            void controller.testBinding('play_ad');
+            expect(sockets[0]?.sent).toEqual(['{"type":"create_marker"}']);
+            expect(logs.at(-1)?.message).toBe('Test: Would ask brobot for an ad break (safe mode: nothing was sent)');
+        });
+
+        it('tests a voiceban key by pressing it with the host in use, the dry run in safe mode', async () => {
+            const controller = connected();
+            await controller.testBinding('voiceban_start');
+            expect(windowsHost.presses).toEqual(['F8']);
+            controller.updateSettings({ safeMode: true, keyBindings: { voiceban_end: 'Ctrl+F9' } });
+            await controller.testBinding('voiceban_end');
+            expect(windowsHost.presses).toEqual(['F8']);
+            expect(logs.at(-1)?.message).toBe('Test: Would press Ctrl+F9 (overlay off) (safe mode: nothing was pressed)');
+            controller.updateSettings({ keyBindings: { voiceban_end: 'none' } });
+            await controller.testBinding('voiceban_end');
+            expect(logs.at(-1)?.message).toBe('Test: Voiceban end is off, so there is no key to press');
+        });
+
+        it('lets go of every shortcut on quit', () => {
+            const controller = connected();
+            controller.shutdown();
+            expect(shortcuts.registered.size).toBe(0);
+        });
     });
 
     it('hands a horror redemption to the game relay as one JSON line, and logs whether the game took it', () => {
@@ -282,10 +438,10 @@ describe('ClientController', () => {
 
     it('saves the overlay keys one at a time, and uses them for the next voiceban', async () => {
         const controller = create();
-        controller.updateSettings({ voicebanKeys: { start: 'none' } });
-        controller.updateSettings({ voicebanKeys: { end: 'F10' } });
-        expect(store.settings.voicebanKeys).toEqual({ start: 'none', end: 'F10' });
-        expect(controller.snapshot().settings.voicebanKeys).toEqual({ start: 'none', end: 'F10' });
+        controller.updateSettings({ keyBindings: { voiceban_start: 'none' } });
+        controller.updateSettings({ keyBindings: { voiceban_end: 'F10' } });
+        expect(store.settings.keyBindings).toMatchObject({ voiceban_start: 'none', voiceban_end: 'F10' });
+        expect(controller.snapshot().settings.keyBindings).toMatchObject({ voiceban_start: 'none', voiceban_end: 'F10' });
         const messages = logs.map(l => l.message);
         expect(messages).toContain('Nothing is pressed when a voiceban starts');
         expect(messages).toContain('F10 is pressed when a voiceban ends');

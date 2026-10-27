@@ -11,14 +11,14 @@
  * here, not new code paths around it.
  */
 
-import type { OverlayKey, VoicebanKeys } from '@brobot-client/shared';
+import type { KeyCombo, VoicebanKeys } from '@brobot-client/shared';
 
 export type HostActionKind = 'block-enter' | 'mute-microphone';
 
 /** One overlay key a voiceban pressed (or tried to), for the log. */
 export interface KeyPress {
     readonly when: 'start' | 'end';
-    readonly key: OverlayKey;
+    readonly key: KeyCombo;
     readonly ok: boolean;
     readonly error?: string;
 }
@@ -66,4 +66,9 @@ export interface HostControl {
      * show and hide its voiceban overlay.
      */
     muteMicrophone(durationMs: number, keys: VoicebanKeys): HostAction;
+    /**
+     * Press `combo` once, as a voiceban would (the window's Test button for a
+     * voiceban key). Resolves once it is pressed, or with why not. Never rejects.
+     */
+    pressKey(combo: KeyCombo): Promise<HostActionResult>;
 }

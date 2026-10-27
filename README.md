@@ -8,10 +8,14 @@ computer:
   chat messages.
 - **!voiceban** — **mutes your microphone** for 30 seconds, and presses **F8**
   as it starts and **F9** as it ends so Streamlabs shows and hides the
-  voiceban overlay (see [The voiceban overlay keys](#the-voiceban-overlay-keys)).
+  voiceban overlay (see [Key bindings](#key-bindings)).
 
 When the time is up it puts everything back and tells brobot, and chat can
 vote again.
+
+It also gives you three shortcuts that work from any app or game:
+**Ctrl+Alt+F5** puts a stream marker on the VOD, **Ctrl+Alt+F4** starts the
+prediction and **Ctrl+Alt+F7** runs an ad break.
 
 ---
 
@@ -79,22 +83,65 @@ paused.
 To turn off just one of them for good, open the window and switch off
 **Obey !chatban** or **Obey !voiceban**.
 
-### The voiceban overlay keys
+### Key bindings
 
-When a voiceban starts brobot presses **F8**, and when it ends — time up,
-**Release now**, or brobot quitting — it presses **F9**. It presses them like
-a real keyboard would, so any app with a global hotkey on them sees it.
+Every key brobot listens for or presses is under **Settings → Key bindings**
+in the window. Each one shows its keys, with **Change**, **Test**,
+**Reset to …** (when it is not the default) and **Off**.
 
-**Streamlabs Desktop must have those keys bound** for the overlay to change:
-in Streamlabs, Settings → Hotkeys, bind **F8** to whatever shows the voiceban
-overlay (and mutes there, if you want) and **F9** to whatever hides it. brobot
-mutes the Windows microphone itself either way.
+**Shortcuts you press** — they work from any app, in a game too:
 
-To use other keys, change **Key at start** and **Key at end** under
-**Obey !voiceban** in the window (F1–F24, or **None** to press nothing), and
-bind the same keys in Streamlabs. In **Safe mode** brobot only logs
-"Would press F8 (overlay on)" and presses nothing; otherwise the event log says
-"Pressed F8 (overlay on)" and "Pressed F9 (overlay off)".
+| Shortcut | Default | Does |
+|---|---|---|
+| Marker | **Ctrl+Alt+F5** | Puts a stream marker on the Twitch VOD |
+| Prediction | **Ctrl+Alt+F4** | Starts the channel prediction |
+| Ad | **Ctrl+Alt+F7** | Runs a 30 s ad break |
+
+brobot does it on Twitch and answers: the event log says "Stream marker
+created" (or why not, such as "No ad break: not live") and Windows shows the
+same as a notification. Pressing one again within 5 seconds is ignored. If
+brobot is not connected, or **Safe mode** is on, nothing is sent and the
+notification says so.
+
+If another app already uses a combination, Windows will not give it to brobot:
+the line under it turns into **"Not working: another app already uses …"**, the
+event log says so and Windows shows a notification. Pick another combination
+(or free it in that app).
+
+**Keys brobot presses for Streamlabs/OBS** — when a voiceban starts brobot
+presses **Voiceban start** (**F8**), and when it ends — time up,
+**Release now**, or brobot quitting — it presses **Voiceban end** (**F9**).
+It presses them like a real keyboard would, so any app with a global hotkey on
+them sees it.
+
+**Streamlabs (or OBS) must have those keys bound** for the overlay to change:
+in Streamlabs, **Settings → Hotkeys** (in OBS, **Settings → Hotkeys**), bind
+the Voiceban start key to whatever shows the voiceban overlay (and mutes there,
+if you want) and the Voiceban end key to whatever hides it. brobot mutes the
+Windows microphone itself either way. A reminder of which key each one must be
+is always shown under them.
+
+To change a binding, click **Change** and press the new combination (hold
+Ctrl, Alt or Shift and press the key); **Esc** cancels. brobot refuses:
+
+- a combination another binding already uses (two on one key would set each
+  other off) — except that Voiceban start and Voiceban end may be the same key,
+  for a Streamlabs hotkey that toggles the overlay,
+- a plain letter, number, arrow or Space without Ctrl or Alt (it would go off
+  while you type or play) — F keys are fine on their own,
+- anything with **Enter** (that is the key a chat ban blocks) and Alt+F4.
+
+It warns, and asks before saving, when a shortcut is one other streaming
+software uses out of the box (Discord's Ctrl+Shift+M, NVIDIA's Alt+F9, …), or
+when Windows says another app already has it. Changing a voiceban key (or
+turning it off) always asks first: **Streamlabs/OBS must have the new key
+bound to the overlay** — update the hotkey there too, or the overlay stops
+switching.
+
+**Test** next to a shortcut sends it to brobot for real (an ad test runs a real
+ad). **Test** next to a voiceban key presses it once, so you can watch the
+overlay switch in Streamlabs. In **Safe mode** both only write what they
+would have done in the event log ("Would press F8 (overlay on)").
 
 Stuck in a ban you need out of? Open the window and click **Release now**:
 Enter works and the microphone is unmuted immediately.
@@ -105,7 +152,8 @@ In the window, **Test chat ban** blocks Enter for 5 seconds and **Test voice
 ban** mutes the microphone for 5 seconds — nothing is sent to chat. Try the
 Enter key in Notepad during the test. The voice ban test presses the overlay
 keys for real too (unless Safe mode is on), so it is also how to check the
-Streamlabs hotkeys.
+Streamlabs hotkeys. Each key binding has its own **Test** too (see
+[Key bindings](#key-bindings)).
 
 ### Updates
 
@@ -130,6 +178,10 @@ The portable exe cannot update itself: download the new one from the
 - **The microphone did not mute** — brobot mutes the microphone Windows has as
   the *default recording device* (Settings → System → Sound → Input). If OBS or
   Discord uses a different microphone, make that one the default.
+- **A shortcut does nothing** — look under Settings → Key bindings. "Not
+  working: another app already uses …" means Windows gave that combination to
+  another app: change it. Otherwise the event log says what happened to the
+  press (not connected, safe mode, or brobot's answer).
 - **The Streamlabs overlay did not change** — check the event log says
   "Pressed F8 (overlay on)", then check Streamlabs has that key bound under
   Settings → Hotkeys. If Streamlabs runs as administrator, Windows may keep

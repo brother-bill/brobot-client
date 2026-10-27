@@ -1,4 +1,4 @@
-import type { VoicebanKeys } from '@brobot-client/shared';
+import type { KeyCombo, VoicebanKeys } from '@brobot-client/shared';
 import type { Clock } from '../core/clock';
 import type { HostAction, HostActionKind, HostActionResult, HostControl, KeyPress } from './host-control';
 
@@ -23,6 +23,8 @@ export interface DryRunCall {
 export class DryRunHostControl implements HostControl {
     readonly kind = 'dry-run' as const;
     readonly calls: DryRunCall[] = [];
+    /** Every combination {@link pressKey} was asked to press. */
+    readonly presses: KeyCombo[] = [];
 
     constructor(
         private readonly clock: Clock,
@@ -36,6 +38,16 @@ export class DryRunHostControl implements HostControl {
 
     muteMicrophone(durationMs: number, keys: VoicebanKeys): HostAction {
         return this.run('mute-microphone', durationMs, keys);
+    }
+
+    pressKey(combo: KeyCombo): Promise<HostActionResult> {
+        this.presses.push(combo);
+        if (this.failNext !== null) {
+            const error = this.failNext;
+            this.failNext = null;
+            return Promise.resolve({ ok: false, error });
+        }
+        return Promise.resolve({ ok: true, detail: 'dry run' });
     }
 
     private run(kind: HostActionKind, durationMs: number, keys: VoicebanKeys | null): HostAction {

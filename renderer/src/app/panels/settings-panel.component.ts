@@ -16,6 +16,7 @@ import {
 } from '@singularity/ngx-ui';
 import { ClientStore } from '../core/client.store';
 import { formatAgo } from '../core/describe';
+import { KeyBindingsComponent } from './key-bindings.component';
 
 /** The same rule the main process applies, so the window can say why before saving. */
 function serverUrlValidator(control: AbstractControl<string>): ValidationErrors | null {
@@ -44,6 +45,7 @@ function serverUrlValidator(control: AbstractControl<string>): ValidationErrors 
         LibHintComponent,
         LibErrorComponent,
         LibSlideToggleComponent,
+        KeyBindingsComponent,
     ],
     styles: `
         form {
@@ -126,6 +128,8 @@ function serverUrlValidator(control: AbstractControl<string>): ValidationErrors 
                         (change)="store.updateSettings({ startWithWindows: $event })">
                         Start with Windows (in the tray)
                     </lib-slide-toggle>
+
+                    <app-key-bindings />
 
                     <p class="muted">
                         Closing this window keeps brobot running in the tray, by the clock in the taskbar. To stop

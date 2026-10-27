@@ -59,4 +59,13 @@ describe('DryRunHostControl', () => {
         action.release();
         expect((await action.done).keys).toEqual([{ when: 'end', key: 'F10', ok: true }]);
     });
+
+    it('presses nothing for a single key, but records it and keeps failNext', async () => {
+        const host = new DryRunHostControl(new FakeClock());
+        expect(await host.pressKey('Ctrl+F8')).toEqual({ ok: true, detail: 'dry run' });
+        host.failNext = 'no keyboard';
+        expect(await host.pressKey('F9')).toEqual({ ok: false, error: 'no keyboard' });
+        expect(host.presses).toEqual(['Ctrl+F8', 'F9']);
+        expect(host.calls).toEqual([]);
+    });
 });

@@ -11,11 +11,12 @@
  * exits. One instance at a time — a second launch shows the first one's window.
  */
 
-import { BrowserWindow, Menu, Notification, app, shell } from 'electron';
+import { BrowserWindow, Menu, Notification, app, globalShortcut, shell } from 'electron';
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 import { systemClock } from './core/clock';
 import { ClientController, type LoginItems } from './core/controller';
+import type { GlobalShortcuts } from './core/shortcuts';
 import { Updater } from './core/updater';
 import { WindowsHostControl } from './host/windows-host-control';
 import { createHandlers } from './ipc/handlers';
@@ -149,6 +150,32 @@ function announceUpdate(version: string): void {
     notification.show();
 }
 
+/** A notification that opens the window when clicked. */
+function notify(title: string, body: string): void {
+    if (!Notification.isSupported()) return;
+    const notification = new Notification({ title, body });
+    notification.on('click', () => showWindow());
+    notification.show();
+}
+
+/**
+ * Electron's system-wide shortcuts. Windows refuses a combination another app
+ * has registered, which Electron reports only through the return value (and
+ * `isRegistered`); a malformed accelerator throws. Both count as "not yours".
+ */
+const globalShortcuts: GlobalShortcuts = {
+    register(combo, onPress) {
+        try {
+            return globalShortcut.register(combo, onPress) && globalShortcut.isRegistered(combo);
+        } catch {
+            return false;
+        }
+    },
+    unregister(combo) {
+        globalShortcut.unregister(combo);
+    },
+};
+
 /** An environment variable set to the empty string counts as unset. */
 function nonEmpty(value: string | undefined): string | undefined {
     return value === undefined || value === '' ? undefined : value;
@@ -180,6 +207,8 @@ async function bootstrap(): Promise<void> {
         socketFactory: wsSocketFactory,
         windowsHost,
         gameRelay: new GameRelaySocket(),
+        shortcuts: globalShortcuts,
+        notify,
         platform: process.platform,
         loginItems,
         version: app.getVersion(),
@@ -256,5 +285,6 @@ if (!app.requestSingleInstanceLock()) {
         updater?.stop();
         tray?.destroy();
     });
+    app.on('will-quit', () => globalShortcut.unregisterAll());
     void bootstrap();
 }

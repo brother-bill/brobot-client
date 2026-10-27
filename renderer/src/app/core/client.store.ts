@@ -8,7 +8,10 @@ import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core'
 import {
     EVENT_LOG_LIMIT,
     type BanCommand,
+    type BindingCheck,
     type ClientSnapshot,
+    type KeyBindingId,
+    type KeyComboSetting,
     type LogEntry,
     type SettingsPatch,
     type UpdateStatus,
@@ -75,6 +78,24 @@ export class ClientStore {
 
     test(command: BanCommand): Promise<boolean> {
         return this.run(() => this.bridge.invoke('command.test', { command }));
+    }
+
+    /** Whether `combo` may become `binding`; null (with {@link error} set) when the host could not say. */
+    async checkBinding(binding: KeyBindingId, combo: KeyComboSetting): Promise<BindingCheck | null> {
+        let check: BindingCheck | null = null;
+        await this.run(async () => {
+            check = await this.bridge.invoke('keyBindings.check', { binding, combo });
+        });
+        return check;
+    }
+
+    /** While true, the shortcuts are let go so the window can see the keys. */
+    captureKeys(active: boolean): Promise<boolean> {
+        return this.run(() => this.bridge.invoke('keyBindings.capture', { active }));
+    }
+
+    testBinding(binding: KeyBindingId): Promise<boolean> {
+        return this.run(() => this.bridge.invoke('keyBindings.test', { binding }));
     }
 
     releaseAll(): Promise<boolean> {

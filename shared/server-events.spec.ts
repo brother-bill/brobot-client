@@ -16,6 +16,20 @@ describe('parseStreamerServerEvent', () => {
         });
     });
 
+    it("reads brobot's answer to a hotkey, with its error line when there is one", () => {
+        expect(parseStreamerServerEvent('{"type":"create_marker_complete"}')).toEqual({ type: 'create_marker_complete' });
+        expect(parseStreamerServerEvent('{"type":"play_ad_complete","error":"not live"}')).toEqual({
+            type: 'play_ad_complete',
+            error: 'not live',
+        });
+        expect(parseStreamerServerEvent('{"type":"create_prediction_complete","error":""}')).toEqual({
+            type: 'create_prediction_complete',
+        });
+        expect(parseStreamerServerEvent('{"type":"create_marker_complete","error":42}')).toEqual({
+            type: 'create_marker_complete',
+        });
+    });
+
     it('gives a ban without a duration the default the chat copy promises', () => {
         expect(parseStreamerServerEvent('{"type":"chatban"}')).toEqual({
             type: 'chatban',

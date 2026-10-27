@@ -308,6 +308,30 @@ describe('WindowsHostControl', () => {
         });
     });
 
+    describe('a single key press (the Test button for a voiceban key)', () => {
+        it('runs the unmute shim with no devices, which only presses the combination', async () => {
+            const pressed = host.pressKey('Ctrl+Alt+F8');
+            expect(latest().script.split('\n').at(-1)).toBe('exit [Brobot.Shim]::Unmute([string[]]@(), 887)');
+            latest().out('PRESSED END\nDONE\n');
+            latest().exit(0);
+            expect(await pressed).toEqual({ ok: true });
+        });
+
+        it('says why Windows refused it', async () => {
+            const pressed = host.pressKey('F8');
+            latest().out('NOT PRESSED END Windows refused the key press (error 5)\nDONE\n');
+            latest().exit(0);
+            expect(await pressed).toEqual({ ok: false, error: 'Windows refused the key press (error 5)' });
+        });
+
+        it('fails when PowerShell did', async () => {
+            const pressed = host.pressKey('F8');
+            latest().err('Add-Type : Cannot add type.\n');
+            latest().exit(1);
+            expect(await pressed).toEqual({ ok: false, error: 'Add-Type : Cannot add type.' });
+        });
+    });
+
     it('fails cleanly when PowerShell cannot be spawned', async () => {
         const broken = new WindowsHostControl({
             clock,

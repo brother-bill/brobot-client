@@ -3,8 +3,10 @@
  * the host driver in use, any ban in progress, and the event log.
  */
 
+import type { KeyComboSetting } from './key-bindings';
 import type { BanCommand } from './server-events';
 import type { PublicSettings } from './settings';
+import type { StreamerHotkey } from './streamer-events';
 
 /**
  * The socket's lifecycle.
@@ -61,6 +63,21 @@ export interface ActiveBan {
     readonly dryRun: boolean;
 }
 
+/**
+ * Whether one of the streamer's shortcuts is listening.
+ *
+ * - `active` — registered with Windows: pressing it anywhere sends it.
+ * - `off`    — switched off in Key bindings.
+ * - `taken`  — Windows refused it: another app already has that combination.
+ * - `paused` — let go for a moment while the window waits for a new key.
+ */
+export type ShortcutState = 'active' | 'off' | 'taken' | 'paused';
+
+export interface ShortcutStatus {
+    readonly state: ShortcutState;
+    readonly combo: KeyComboSetting;
+}
+
 /** Who a log line is about. */
 export type LogSource = 'bot' | 'host' | 'connection' | 'app';
 
@@ -82,6 +99,8 @@ export interface ClientSnapshot {
     readonly settings: PublicSettings;
     readonly host: HostInfo;
     readonly active: readonly ActiveBan[];
+    /** The marker / prediction / ad shortcuts, and whether each is registered. */
+    readonly shortcuts: Readonly<Record<StreamerHotkey, ShortcutStatus>>;
     /** Oldest first, capped; see `EVENT_LOG_LIMIT`. */
     readonly log: readonly LogEntry[];
     /** Whether `safeStorage` can encrypt here. When false, a secret cannot be saved. */

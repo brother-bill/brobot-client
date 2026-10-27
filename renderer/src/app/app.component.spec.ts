@@ -2,7 +2,9 @@ import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+    DEFAULT_KEY_BINDINGS,
     INITIAL_CONNECTION_STATUS,
+    type BindingCheck,
     type BrobotBridge,
     type ClientSnapshot,
     type HostEventName,
@@ -21,7 +23,7 @@ const SNAPSHOT: ClientSnapshot = {
         serverUrl: 'wss://admin.brobot.live/api/ashketchum',
         hasSecret: true,
         commands: { chatban: true, voiceban: false },
-        voicebanKeys: { start: 'F8', end: 'F9' },
+        keyBindings: DEFAULT_KEY_BINDINGS,
         safeMode: false,
         paused: false,
         startWithWindows: true,
@@ -29,6 +31,11 @@ const SNAPSHOT: ClientSnapshot = {
     },
     host: { kind: 'windows', reason: null },
     active: [],
+    shortcuts: {
+        create_marker: { state: 'active', combo: 'Ctrl+Alt+F5' },
+        create_prediction: { state: 'taken', combo: 'Ctrl+Alt+F4' },
+        play_ad: { state: 'active', combo: 'Ctrl+Alt+F7' },
+    },
     log: [{ id: 1, at: Date.now(), source: 'bot', tone: 'info', message: 'brobot asked for a chatban (5 min)' }],
     secureStorageAvailable: true,
 };
@@ -52,12 +59,20 @@ const AVAILABLE: UpdateStatus = {
 
 class FakeBridge implements BrobotBridge {
     update: UpdateStatus = UP_TO_DATE;
+    check: BindingCheck = { errors: [], warnings: [] };
     readonly calls: { name: OperationName; request: unknown }[] = [];
     private readonly handlers = new Map<string, (payload: unknown) => void>();
 
     invoke(name: OperationName, request: unknown): Promise<never> {
         this.calls.push({ name, request });
-        const response = name === 'client.snapshot' ? SNAPSHOT : name.startsWith('update.') ? this.update : undefined;
+        const response =
+            name === 'client.snapshot' || name === 'settings.update'
+                ? SNAPSHOT
+                : name === 'keyBindings.check'
+                  ? this.check
+                  : name.startsWith('update.')
+                    ? this.update
+                    : undefined;
         return Promise.resolve(response as never);
     }
 
@@ -172,5 +187,155 @@ describe('AppComponent', () => {
         const root = fixture.nativeElement as HTMLElement;
         expect(root.textContent).toContain('Downloading brobot 1.2.0');
         expect(root.textContent).toContain('42%');
+    });
+
+    describe('key bindings', () => {
+        async function setup(): Promise<{ root: HTMLElement; settle: () => Promise<void> }> {
+            const fixture = TestBed.createComponent(AppComponent);
+            const settle = async (): Promise<void> => {
+                for (let i = 0; i < 3; i++) {
+                    await fixture.whenStable();
+                    fixture.detectChanges();
+                }
+            };
+            await settle();
+            return { root: fixture.nativeElement as HTMLElement, settle };
+        }
+
+        const binding = (root: HTMLElement, label: string): HTMLElement =>
+            [...root.querySelectorAll<HTMLElement>('.binding')].find(
+                b => b.querySelector('.binding__label')?.textContent.trim() === label,
+            )!;
+        const button = (scope: HTMLElement, label: string): HTMLButtonElement =>
+            [...scope.querySelectorAll('button')].find(b => b.textContent.trim() === label)!;
+        const keydown = (target: Element, code: string, mods: KeyboardEventInit = {}): void => {
+            target.dispatchEvent(new KeyboardEvent('keydown', { code, bubbles: true, cancelable: true, ...mods }));
+        };
+        const calls = (name: OperationName) => bridge.calls.filter(c => c.name === name).map(c => c.request);
+
+        it('lists every binding with its keys, flags a shortcut another app holds, and reminds about Streamlabs/OBS', async () => {
+            const { root } = await setup();
+            const text = (label: string) => binding(root, label).textContent.replace(/\s+/g, ' ');
+            expect(text('Marker')).toContain('Ctrl+Alt+F5');
+            expect(text('Marker')).toContain('Listening');
+            expect(text('Prediction')).toContain('Warning: Not working: another app already uses Ctrl+Alt+F4');
+            expect(text('Ad')).toContain('Ctrl+Alt+F7');
+            expect(text('Voiceban start')).toContain('Streamlabs/OBS must have F8 bound to show the voiceban overlay.');
+            expect(text('Voiceban end')).toContain('F9');
+            // At their defaults: Off offered, Reset not.
+            expect(button(binding(root, 'Marker'), 'Off')).toBeDefined();
+            expect(button(binding(root, 'Marker'), 'Reset to Ctrl+Alt+F5')).toBeUndefined();
+        });
+
+        it('captures the next combination with the shortcuts let go, and saves it', async () => {
+            const { root, settle } = await setup();
+            button(binding(root, 'Marker'), 'Change').click();
+            await settle();
+            expect(calls('keyBindings.capture')).toEqual([{ active: true }]);
+            const zone = binding(root, 'Marker').querySelector('.binding__capture')!;
+            expect(document.activeElement).toBe(zone);
+
+            keydown(zone, 'ControlLeft', { ctrlKey: true });
+            keydown(zone, 'AltLeft', { ctrlKey: true, altKey: true });
+            keydown(zone, 'F6', { ctrlKey: true, altKey: true });
+            await settle();
+            expect(calls('keyBindings.check')).toEqual([{ binding: 'create_marker', combo: 'Ctrl+Alt+F6' }]);
+            expect(calls('settings.update')).toEqual([{ keyBindings: { create_marker: 'Ctrl+Alt+F6' } }]);
+            expect(calls('keyBindings.capture')).toEqual([{ active: true }, { active: false }]);
+            expect(binding(root, 'Marker').querySelector('.binding__capture')).toBeNull();
+        });
+
+        it('cancels on Esc, saving nothing', async () => {
+            const { root, settle } = await setup();
+            button(binding(root, 'Ad'), 'Change').click();
+            await settle();
+            keydown(binding(root, 'Ad').querySelector('.binding__capture')!, 'Escape');
+            await settle();
+            expect(calls('settings.update')).toEqual([]);
+            expect(calls('keyBindings.capture')).toEqual([{ active: true }, { active: false }]);
+        });
+
+        it('says why a combination is refused and keeps listening for another', async () => {
+            const { root, settle } = await setup();
+            button(binding(root, 'Ad'), 'Change').click();
+            await settle();
+            const zone = (): Element => binding(root, 'Ad').querySelector('.binding__capture')!;
+            keydown(zone(), 'Enter', { ctrlKey: true });
+            await settle();
+            expect(zone().textContent).toContain('Enter is the key a chat ban blocks');
+            expect(calls('keyBindings.check')).toEqual([]);
+
+            bridge.check = { errors: ['F8 is already the Voiceban start key. Each binding needs its own.'], warnings: [] };
+            keydown(zone(), 'F8');
+            await settle();
+            expect(zone().textContent).toContain('F8 is already the Voiceban start key');
+            expect(calls('settings.update')).toEqual([]);
+        });
+
+        it('asks before saving a shortcut on a common default, with the warning', async () => {
+            bridge.check = { errors: [], warnings: ["Ctrl+Shift+M is Discord's Toggle Mute by default, so pressing it may set that off too."] };
+            const { root, settle } = await setup();
+            button(binding(root, 'Marker'), 'Change').click();
+            await settle();
+            keydown(binding(root, 'Marker').querySelector('.binding__capture')!, 'KeyM', { ctrlKey: true, shiftKey: true });
+            await settle();
+            expect(binding(root, 'Marker').textContent).toContain("Discord's Toggle Mute");
+            expect(calls('settings.update')).toEqual([]);
+            button(binding(root, 'Marker'), 'Save').click();
+            await settle();
+            expect(calls('settings.update')).toEqual([{ keyBindings: { create_marker: 'Ctrl+Shift+M' } }]);
+        });
+
+        it('shows the Streamlabs/OBS notice before a voiceban key changes, with Save and Cancel', async () => {
+            const { root, settle } = await setup();
+            const row = (): HTMLElement => binding(root, 'Voiceban start');
+            button(row(), 'Change').click();
+            await settle();
+            keydown(row().querySelector('.binding__capture')!, 'F10');
+            await settle();
+            expect(row().textContent).toContain(
+                'Streamlabs/OBS must have F10 bound to the overlay. Update the hotkey in Streamlabs → Settings → Hotkeys ' +
+                    '(or OBS → Settings → Hotkeys) or the overlay will stop switching.',
+            );
+            button(row(), 'Cancel').click();
+            await settle();
+            expect(calls('settings.update')).toEqual([]);
+
+            // Off goes through the same notice.
+            button(row(), 'Off').click();
+            await settle();
+            expect(row().textContent).toContain('brobot will stop pressing a key as a voiceban starts');
+            button(row(), 'Save').click();
+            await settle();
+            expect(calls('settings.update')).toEqual([{ keyBindings: { voiceban_start: 'none' } }]);
+        });
+
+        it('drops a check that answers after the change was cancelled', async () => {
+            const { root, settle } = await setup();
+            let answer: (check: BindingCheck) => void = () => undefined;
+            const invoke = bridge.invoke.bind(bridge);
+            bridge.invoke = ((name: OperationName, request: unknown) =>
+                name === 'keyBindings.check'
+                    ? (bridge.calls.push({ name, request }), new Promise<BindingCheck>(resolve => (answer = resolve)))
+                    : invoke(name, request)) as never;
+            button(binding(root, 'Ad'), 'Change').click();
+            await settle();
+            keydown(binding(root, 'Ad').querySelector('.binding__capture')!, 'F6', { ctrlKey: true });
+            button(binding(root, 'Ad'), 'Cancel').click();
+            await settle();
+            answer({ errors: [], warnings: [] });
+            // The late answer travels through a few promise hops; give it a turn.
+            await new Promise(resolve => setTimeout(resolve, 50));
+            await settle();
+            expect(calls('keyBindings.check')).toHaveLength(1);
+            expect(calls('settings.update')).toEqual([]);
+        });
+
+        it('tests each binding through the host', async () => {
+            const { root } = await setup();
+            button(binding(root, 'Ad'), 'Test').click();
+            button(binding(root, 'Voiceban end'), 'Test').click();
+            expect(calls('keyBindings.test')).toEqual([{ binding: 'play_ad' }, { binding: 'voiceban_end' }]);
+        });
     });
 });

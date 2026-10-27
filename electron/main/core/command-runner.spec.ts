@@ -183,6 +183,7 @@ describe('CommandRunner', () => {
             kind: 'windows',
             blockEnter: ms => host.blockEnter(ms),
             muteMicrophone: (ms, keys) => host.muteMicrophone(ms, keys),
+            pressKey: combo => host.pressKey(combo),
         });
 
         it('in safe mode, says what it would press and presses nothing', async () => {
@@ -254,6 +255,7 @@ describe('CommandRunner', () => {
                     done: Promise.resolve({ ok: true }),
                     release: () => undefined,
                 }),
+                pressKey: combo => host.pressKey(combo),
             };
             runner = new CommandRunner({ ...options(), host: () => refusing });
             await runner.handle({ type: 'voiceban', durationMs: 1000 });

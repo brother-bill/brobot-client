@@ -38,8 +38,9 @@ Neither runs on a push, and neither is in the gate.
 |---|---|
 | `shared/streamer-events.ts` | brobot's wire contract, **copied byte for byte** from `apps/brobot/src/modules/twitch/streamer-events.ts`. Change both or neither. |
 | `shared/server-events.ts` | The client's half: parsing what brobot sends, duration defaults and the 15-minute cap |
+| `shared/key-bindings.ts` | The five key bindings: the combo notation (Electron accelerators), the rules (refused, duplicate, common defaults) and key capture |
 | `shared/bridge.ts` | The one IPC contract (operations + events), as in mediabot |
-| `electron/main/core/` | Everything with logic, **free of Electron and Node imports**: the connection state machine, the command runner, the controller, tray-state mapping, the tray icon rasteriser. Tested in `*.spec.ts` beside each file |
+| `electron/main/core/` | Everything with logic, **free of Electron and Node imports**: the connection state machine, the command runner, the shortcuts (`shortcuts.ts`), the controller, the settings file and its migration, tray-state mapping, the tray icon rasteriser. Tested in `*.spec.ts` beside each file |
 | `electron/main/host/` | `HostControl`: the interface, the dry run, and the Windows driver (a PowerShell shim) |
 | `electron/main/services/` | The Electron/Node edges: settings file + `safeStorage`, the `ws` socket, the update download (`update-backend.ts`) |
 | `electron/main/core/updater.ts`, `core/release.ts` | Self-update: when to check, what the window offers, and the checks on a GitHub release before its installer runs |
@@ -54,7 +55,7 @@ Neither runs on a push, and neither is in the gate.
   tests run under the Angular unit-test builder, which bundles for the
   browser; a Node import there fails the whole suite. Anything that needs the
   OS is injected (`Clock`, `SocketFactory`, `ShimSpawner`, `SettingsStore`,
-  `LoginItems`) and wired in `main.ts`.
+  `LoginItems`, `GlobalShortcuts`) and wired in `main.ts`.
 
 - **nut.js cannot do a chatban.** It synthesises input; a chatban has to
   *suppress* it. The keyboard block is a `WH_KEYBOARD_LL` hook and the mic mute
@@ -80,10 +81,36 @@ Neither runs on a push, and neither is in the gate.
   sent with indentation and whole-line comments stripped, and the encoded
   command line must stay under Windows' 32,767 characters (a spec checks 30,000).
 
+- **Key bindings are one set of five, checked together.** Marker / Prediction /
+  Ad are Electron `globalShortcut`s; the voiceban keys are pressed by the shim
+  as `keyCodeOf` encodes them (virtual key, plus a bit each for Ctrl / Alt /
+  Shift and for an extended key). A duplicate across the five is refused
+  everywhere — `bindingsError` in `updateSettings`, and the settings-file
+  parser switches the shortcut off — because a voiceban pressing a key that is
+  also a shortcut would fire the shortcut. The one exception: voiceban start
+  and end may be the same key (a hotkey that toggles the overlay; 1.2.1
+  allowed it). Enter is never allowed (it is the
+  chatban key), nor a typing key without Ctrl or Alt.
+
+- **A shortcut another app holds must be loud.** Windows refuses the
+  registration and Electron only says so through the return value; the
+  `ShortcutManager` turns that into a `taken` state in the snapshot, an error
+  line and a notification (once per combination). While the window captures a
+  new combination the shortcuts are unregistered (`keyBindings.capture`),
+  or the keys would fire instead of reaching the window; they come back by
+  themselves after a minute if the window never finishes.
+
+- **The settings file is versioned.** 1 (≤ 1.2.1) had `voicebanKeys`; 2 has
+  `keyBindings`. A new field gets a default in `parseSettingsFile`, a new shape
+  gets a version and a migration there, with a spec.
+
 - **Give every spawned shim's stdin an `error` listener** (`main.ts` does).
   `release()` writes `stop` to a process that may already have exited; an
   `EPIPE` on a stream with no listener is an uncaught exception in the main
   process.
+
+- **The voiceban keys' Test button reuses the unmute shim with no devices**
+  (`WindowsHostControl.pressKey`): it presses the key and reports it as `END`.
 
 - **Every ban from brobot gets exactly one `*_complete` reply** — declined ones
   too, with an `error`. brobot's vote counter waits for it; without it chat can

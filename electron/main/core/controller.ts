@@ -10,13 +10,24 @@
  */
 
 import {
+    BINDING_LABEL,
     INITIAL_CONNECTION_STATUS,
+    KEY_BINDING_IDS,
+    bindingsError,
+    checkBinding,
+    describeCombo,
+    isPressedBinding,
     normalizeServerUrl,
+    voicebanKeysOf,
     type ActiveBan,
     type BanCommand,
+    type BindingCheck,
     type ClientSnapshot,
     type ConnectionStatus,
     type HostInfo,
+    type KeyBindingId,
+    type KeyBindings,
+    type KeyComboSetting,
     type LogEntry,
     type LogSource,
     type LogTone,
@@ -30,6 +41,7 @@ import { ConnectionManager, type SocketFactory } from './connection';
 import { EventLog } from './event-log';
 import { chatRelayLine, NO_HORROR_RUN, relayLine, type GameRelay, type HorrorRun } from './game-relay';
 import type { StoredSettings } from './settings-file';
+import { ShortcutManager, type GlobalShortcuts } from './shortcuts';
 
 /** Persistence, implemented over a JSON file + `safeStorage` in `services/settings-store.ts`. */
 export interface SettingsStore {
@@ -64,6 +76,10 @@ export interface ControllerOptions {
     readonly random?: () => number;
     /** The horror game's local relay (SLEEP TIGHT); without one, horror redemptions are only logged. */
     readonly gameRelay?: GameRelay;
+    /** System-wide shortcuts for Marker / Prediction / Ad (Electron's `globalShortcut`). */
+    readonly shortcuts: GlobalShortcuts;
+    /** A Windows notification, for what the streamer should know while in a game. */
+    readonly notify?: (title: string, body: string) => void;
 }
 
 export class ClientController {
@@ -77,6 +93,7 @@ export class ClientController {
     private readonly log: EventLog;
     private readonly connection: ConnectionManager;
     private readonly runner: CommandRunner;
+    private readonly shortcuts: ShortcutManager;
     private readonly dryRun: DryRunHostControl;
     private readonly listeners = new Set<(snapshot: ClientSnapshot) => void>();
 
@@ -112,12 +129,22 @@ export class ClientController {
                 if (delivered && !this.chatForwarding) this.log.append('bot', 'info', 'Passing Twitch chat on to the horror game');
                 this.chatForwarding = delivered;
             },
+            onHotkeyComplete: event => this.shortcuts.complete(event),
             onLog: (tone, message) => this.log.append('connection', tone, message),
+        });
+        this.shortcuts = new ShortcutManager({
+            clock: options.clock,
+            shortcuts: options.shortcuts,
+            send: event => this.connection.send(event),
+            safeMode: () => this.settings.safeMode,
+            log: (source, tone, message) => this.log.append(source, tone, message),
+            notify: (title, body) => options.notify?.(title, body),
+            onChange: () => this.changed(),
         });
         this.runner = new CommandRunner({
             clock: options.clock,
             host: () => this.currentHost(),
-            policy: () => this.settings,
+            policy: () => ({ ...this.settings, voicebanKeys: voicebanKeysOf(this.settings.keyBindings) }),
             reply: event => {
                 if (!this.connection.send(event)) {
                     this.log.append(
@@ -154,6 +181,7 @@ export class ClientController {
             'info',
             host.kind === 'windows' ? 'Ready: host control is live' : `Ready: dry run — ${host.reason ?? ''}`,
         );
+        this.shortcuts.apply(this.settings.keyBindings);
         this.applyConnection();
     }
 
@@ -164,6 +192,7 @@ export class ClientController {
             settings: { ...this.settings, hasSecret: this.secret() !== null },
             host: this.hostInfo(),
             active: this.activeBans,
+            shortcuts: this.shortcuts.status,
             log: this.log.all,
             secureStorageAvailable: this.options.store.secureStorageAvailable,
         };
@@ -182,11 +211,14 @@ export class ClientController {
             if (!normalized.ok) throw new Error(normalized.error);
             serverUrl = normalized.url;
         }
+        const keyBindings: KeyBindings = { ...this.settings.keyBindings, ...patch.keyBindings };
+        const bindingError = bindingsError(keyBindings);
+        if (bindingError !== null) throw new Error(bindingError);
         const next: StoredSettings = {
             ...this.settings,
             serverUrl,
             commands: { ...this.settings.commands, ...patch.commands },
-            voicebanKeys: { ...this.settings.voicebanKeys, ...patch.voicebanKeys },
+            keyBindings,
             safeMode: patch.safeMode ?? this.settings.safeMode,
             paused: patch.paused ?? this.settings.paused,
             startWithWindows: patch.startWithWindows ?? this.settings.startWithWindows,
@@ -206,6 +238,45 @@ export class ClientController {
 
     test(command: BanCommand): void {
         void this.runner.test(command);
+    }
+
+    /**
+     * Whether `combo` may become `binding`: the shared rules, and for a
+     * shortcut whether Windows would let brobot have it.
+     */
+    checkBinding(binding: KeyBindingId, combo: KeyComboSetting): BindingCheck {
+        const check = checkBinding(binding, combo, this.settings.keyBindings);
+        if (check.errors.length > 0 || isPressedBinding(binding)) return check;
+        const taken = this.shortcuts.probe(binding, combo);
+        return taken === null ? check : { ...check, warnings: [...check.warnings, taken] };
+    }
+
+    /** The window is waiting for a new combination: let go of the shortcuts until it is done. */
+    captureKeys(active: boolean): void {
+        this.shortcuts.suspend(active);
+    }
+
+    /** A shortcut sends its event as if pressed; a voiceban key is pressed once. Safe mode only logs. */
+    async testBinding(binding: KeyBindingId): Promise<void> {
+        if (!isPressedBinding(binding)) {
+            this.shortcuts.press(binding, true);
+            return;
+        }
+        const combo = this.settings.keyBindings[binding];
+        const what = `${describeCombo(combo)} (overlay ${binding === 'voiceban_start' ? 'on' : 'off'})`;
+        if (combo === 'none') {
+            this.log.append('app', 'info', `Test: ${BINDING_LABEL[binding]} is off, so there is no key to press`);
+            return;
+        }
+        const host = this.currentHost();
+        const result = await host.pressKey(combo);
+        if (host.kind === 'dry-run') {
+            this.log.append('host', 'info', `Test: Would press ${what} (safe mode: nothing was pressed)`);
+        } else if (result.ok) {
+            this.log.append('host', 'success', `Test: Pressed ${what}`);
+        } else {
+            this.log.append('host', 'warning', `Test: Could not press ${what}: ${result.error}`);
+        }
     }
 
     releaseAll(): void {
@@ -236,6 +307,7 @@ export class ClientController {
     /** Stop listening and undo anything in progress. Called on quit. */
     shutdown(): void {
         this.options.gameRelay?.stop?.();
+        this.shortcuts.stop();
         this.runner.releaseAll();
         this.connection.stop();
     }
@@ -262,6 +334,7 @@ export class ClientController {
         const loginChanged = next.startWithWindows !== this.settings.startWithWindows || firstSetup;
         this.settings = next;
         this.options.store.save(next);
+        this.shortcuts.apply(next.keyBindings);
         if (loginChanged) this.applyLoginItem();
         this.applyConnection();
         this.changed();
@@ -315,11 +388,14 @@ export class ClientController {
                 say(`${command} ${after.commands[command] ? 'enabled' : 'disabled'}`);
             }
         }
-        for (const when of ['start', 'end'] as const) {
-            const key = after.voicebanKeys[when];
-            if (before.voicebanKeys[when] !== key) {
-                const moment = when === 'start' ? 'starts' : 'ends';
-                say(key === 'none' ? `Nothing is pressed when a voiceban ${moment}` : `${key} is pressed when a voiceban ${moment}`);
+        for (const id of KEY_BINDING_IDS) {
+            const combo = after.keyBindings[id];
+            if (before.keyBindings[id] === combo) continue;
+            if (isPressedBinding(id)) {
+                const moment = id === 'voiceban_start' ? 'starts' : 'ends';
+                say(combo === 'none' ? `Nothing is pressed when a voiceban ${moment}` : `${describeCombo(combo)} is pressed when a voiceban ${moment}`);
+            } else {
+                say(combo === 'none' ? `${BINDING_LABEL[id]} shortcut off` : `${BINDING_LABEL[id]} shortcut set to ${describeCombo(combo)}`);
             }
         }
         if (before.startWithWindows !== after.startWithWindows) {
