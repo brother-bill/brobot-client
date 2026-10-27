@@ -6,7 +6,9 @@ computer:
 
 - **!chatban** — blocks your **Enter** key for 5 minutes, so you cannot send
   chat messages.
-- **!voiceban** — **mutes your microphone** for 30 seconds.
+- **!voiceban** — **mutes your microphone** for 30 seconds, and presses **F8**
+  as it starts and **F9** as it ends so Streamlabs shows and hides the
+  voiceban overlay (see [The voiceban overlay keys](#the-voiceban-overlay-keys)).
 
 When the time is up it puts everything back and tells brobot, and chat can
 vote again.
@@ -77,6 +79,23 @@ paused.
 To turn off just one of them for good, open the window and switch off
 **Obey !chatban** or **Obey !voiceban**.
 
+### The voiceban overlay keys
+
+When a voiceban starts brobot presses **F8**, and when it ends — time up,
+**Release now**, or brobot quitting — it presses **F9**. It presses them like
+a real keyboard would, so any app with a global hotkey on them sees it.
+
+**Streamlabs Desktop must have those keys bound** for the overlay to change:
+in Streamlabs, Settings → Hotkeys, bind **F8** to whatever shows the voiceban
+overlay (and mutes there, if you want) and **F9** to whatever hides it. brobot
+mutes the Windows microphone itself either way.
+
+To use other keys, change **Key at start** and **Key at end** under
+**Obey !voiceban** in the window (F1–F24, or **None** to press nothing), and
+bind the same keys in Streamlabs. In **Safe mode** brobot only logs
+"Would press F8 (overlay on)" and presses nothing; otherwise the event log says
+"Pressed F8 (overlay on)" and "Pressed F9 (overlay off)".
+
 Stuck in a ban you need out of? Open the window and click **Release now**:
 Enter works and the microphone is unmuted immediately.
 
@@ -84,7 +103,9 @@ Enter works and the microphone is unmuted immediately.
 
 In the window, **Test chat ban** blocks Enter for 5 seconds and **Test voice
 ban** mutes the microphone for 5 seconds — nothing is sent to chat. Try the
-Enter key in Notepad during the test.
+Enter key in Notepad during the test. The voice ban test presses the overlay
+keys for real too (unless Safe mode is on), so it is also how to check the
+Streamlabs hotkeys.
 
 ### Updates
 
@@ -109,6 +130,10 @@ The portable exe cannot update itself: download the new one from the
 - **The microphone did not mute** — brobot mutes the microphone Windows has as
   the *default recording device* (Settings → System → Sound → Input). If OBS or
   Discord uses a different microphone, make that one the default.
+- **The Streamlabs overlay did not change** — check the event log says
+  "Pressed F8 (overlay on)", then check Streamlabs has that key bound under
+  Settings → Hotkeys. If Streamlabs runs as administrator, Windows may keep
+  key presses from a normal app away from it: run both the same way.
 - **Enter still works somewhere during a chat ban** — the block is a
   system-wide Windows keyboard hook; a program that reads the keyboard below
   that level could still see Enter. Tell the owner which program it was.

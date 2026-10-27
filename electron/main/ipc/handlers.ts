@@ -6,7 +6,9 @@
 
 import {
     BAN_COMMANDS,
+    isOverlayKeySetting,
     type BanCommand,
+    type OverlayKeySetting,
     type OperationName,
     type OperationRequest,
     type OperationResponse,
@@ -55,6 +57,14 @@ function validPatch(request: unknown): SettingsPatch {
             if (typeof value === 'boolean') commands[command] = value;
         }
         patch.commands = commands;
+    }
+    if (typeof r['voicebanKeys'] === 'object' && r['voicebanKeys'] !== null) {
+        const keys: { start?: OverlayKeySetting; end?: OverlayKeySetting } = {};
+        for (const when of ['start', 'end'] as const) {
+            const value = (r['voicebanKeys'] as Record<string, unknown>)[when];
+            if (isOverlayKeySetting(value)) keys[when] = value;
+        }
+        patch.voicebanKeys = keys;
     }
     return patch;
 }

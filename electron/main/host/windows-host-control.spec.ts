@@ -5,6 +5,10 @@ import { POWERSHELL, WindowsHostControl, type ShimProcess } from './windows-host
 
 type Listener = (...args: never[]) => void;
 
+const KEYS = { start: 'F8', end: 'F9' } as const;
+const NO_KEYS = { start: 'none', end: 'none' } as const;
+const DEVICE = '{0.0.1.00000000}.{8f1c2a3b-0000-4000-8000-000000000001}';
+
 class FakeProcess implements ShimProcess {
     readonly written: string[] = [];
     stdinEnded = false;
@@ -121,7 +125,7 @@ describe('WindowsHostControl', () => {
     });
 
     it('kills a shim that never takes hold', async () => {
-        const action = host.muteMicrophone(1000);
+        const action = host.muteMicrophone(1000, KEYS);
         clock.advance(20_000);
         expect(latest().killed).toBe(true);
         latest().exit(null);
@@ -155,7 +159,7 @@ describe('WindowsHostControl', () => {
     });
 
     it('unmutes from outside when a mute shim is killed after muting', async () => {
-        const action = host.muteMicrophone(30_000);
+        const action = host.muteMicrophone(30_000, NO_KEYS);
         const shim = latest();
         shim.out('MUTED {0.0.1.00000000}.{8f1c2a3b-0000-4000-8000-000000000001}\nREADY\n');
         clock.advance(30_000 + 10_000);
@@ -166,7 +170,7 @@ describe('WindowsHostControl', () => {
         const unmute = latest();
         expect(unmute).not.toBe(shim);
         expect(unmute.script).toContain(
-            "[Brobot.Shim]::Unmute([string[]]@('{0.0.1.00000000}.{8f1c2a3b-0000-4000-8000-000000000001}'))",
+            "[Brobot.Shim]::Unmute([string[]]@('{0.0.1.00000000}.{8f1c2a3b-0000-4000-8000-000000000001}'), 0)",
         );
         unmute.out('DONE\n');
         unmute.exit(0);
@@ -177,7 +181,7 @@ describe('WindowsHostControl', () => {
     });
 
     it('says so when the microphone was already muted', async () => {
-        const action = host.muteMicrophone(1000);
+        const action = host.muteMicrophone(1000, NO_KEYS);
         latest().out('READY\nDONE\n');
         latest().exit(0);
         expect(await action.done).toEqual({
@@ -187,13 +191,121 @@ describe('WindowsHostControl', () => {
     });
 
     it('ignores a MUTED line that is not a device id', async () => {
-        const action = host.muteMicrophone(1000);
+        const action = host.muteMicrophone(1000, NO_KEYS);
         latest().out("MUTED x'); Remove-Item C:\\ -Recurse; ('\nREADY\n");
         latest().exit(1);
         await settle();
         // No unmute shim is run with that text quoted into it.
         expect(processes).toHaveLength(1);
         expect(await action.done).toEqual({ ok: false, error: 'PowerShell exited with code 1' });
+    });
+
+    describe('the voiceban overlay keys', () => {
+        const F8 = { when: 'start', key: 'F8', ok: true } as const;
+        const F9 = { when: 'end', key: 'F9', ok: true } as const;
+
+        it('asks the shim for them as virtual-key codes', () => {
+            host.muteMicrophone(30_000, KEYS);
+            expect(latest().script).toContain('exit [Brobot.Shim]::MuteMicrophone(30000, 4242, 119, 120)');
+            host.muteMicrophone(30_000, NO_KEYS);
+            expect(latest().script).toContain('exit [Brobot.Shim]::MuteMicrophone(30000, 4242, 0, 0)');
+        });
+
+        it('reports the start key on started and the end key on done when the duration is over', async () => {
+            const action = host.muteMicrophone(30_000, KEYS);
+            latest().out(`MUTED ${DEVICE}\nPRESSED START\nREADY\n`);
+            expect(await action.started).toEqual({ ok: true, keys: [F8] });
+            latest().out('PRESSED END\nDONE\n');
+            latest().exit(0);
+            expect(await action.done).toEqual({ ok: true, keys: [F9] });
+            expect(processes).toHaveLength(1);
+        });
+
+        it('reports the end key after Stop (release, and the app quitting)', async () => {
+            const action = host.muteMicrophone(300_000, KEYS);
+            latest().out(`MUTED ${DEVICE}\nPRESSED START\nREADY\n`);
+            await action.started;
+            action.release();
+            expect(latest().written).toEqual(['stop\n']);
+            latest().out('PRESSED END\nDONE\n');
+            latest().exit(0);
+            expect(await action.done).toEqual({ ok: true, keys: [F9] });
+        });
+
+        it('presses the end key from outside when the shim was killed before it could', async () => {
+            const action = host.muteMicrophone(30_000, KEYS);
+            const shim = latest();
+            shim.out(`MUTED ${DEVICE}\nPRESSED START\nREADY\n`);
+            clock.advance(30_000 + 10_000);
+            expect(shim.killed).toBe(true);
+            shim.exit(null);
+            await settle();
+
+            const restore = latest();
+            expect(restore).not.toBe(shim);
+            expect(restore.script).toContain(`[Brobot.Shim]::Unmute([string[]]@('${DEVICE}'), 120)`);
+            restore.out('PRESSED END\nDONE\n');
+            restore.exit(0);
+            expect(await action.done).toEqual({
+                ok: true,
+                detail: 'the shim was stopped; the microphone was unmuted separately',
+                keys: [F9],
+            });
+        });
+
+        it('presses the end key from outside even when nothing needed unmuting', async () => {
+            const action = host.muteMicrophone(300_000, KEYS);
+            const shim = latest();
+            shim.out('PRESSED START\nREADY\n');
+            action.release();
+            clock.advance(3000);
+            expect(shim.killed).toBe(true);
+            shim.exit(null);
+            await settle();
+
+            expect(latest().script).toContain('[Brobot.Shim]::Unmute([string[]]@(), 120)');
+            latest().out('PRESSED END\nDONE\n');
+            latest().exit(0);
+            expect(await action.done).toEqual({ ok: true, detail: 'the shim was stopped', keys: [F9] });
+        });
+
+        it('does not press the end key twice when the shim pressed it before being killed', async () => {
+            const action = host.muteMicrophone(30_000, KEYS);
+            const shim = latest();
+            shim.out(`MUTED ${DEVICE}\nPRESSED START\nREADY\nPRESSED END\n`);
+            shim.exit(null);
+            await settle();
+            expect(latest().script).toContain(`Unmute([string[]]@('${DEVICE}'), 0)`);
+            latest().out('DONE\n');
+            latest().exit(0);
+            expect((await action.done).keys).toEqual([F9]);
+        });
+
+        it('presses nothing from outside when the shim never got going', async () => {
+            const action = host.muteMicrophone(30_000, KEYS);
+            latest().err('No default recording device is set in Windows sound settings\n');
+            latest().exit(3);
+            expect(await action.done).toEqual({
+                ok: false,
+                error: 'No default recording device is set in Windows sound settings',
+            });
+            expect(processes).toHaveLength(1);
+        });
+
+        it('reports a key press Windows refused, and still mutes', async () => {
+            const action = host.muteMicrophone(30_000, KEYS);
+            latest().out(`MUTED ${DEVICE}\nNOT PRESSED START Windows refused the key press (error 5)\nREADY\n`);
+            expect(await action.started).toEqual({
+                ok: true,
+                keys: [{ when: 'start', key: 'F8', ok: false, error: 'Windows refused the key press (error 5)' }],
+            });
+        });
+
+        it('ignores press lines for a key it did not ask for', async () => {
+            const action = host.muteMicrophone(30_000, { start: 'none', end: 'F9' });
+            latest().out('PRESSED START\nPRESSED SIDEWAYS\nREADY\n');
+            expect(await action.started).toEqual({ ok: true });
+        });
     });
 
     it('fails cleanly when PowerShell cannot be spawned', async () => {

@@ -4,15 +4,18 @@
  * nut.js, and how an action is guaranteed to end.
  *
  * The process is injected ({@link ShimSpawner}) so the protocol handling below
- * — READY, MUTED, DONE, exit codes, timeouts, the unmute fallback — is covered
+ * — READY, MUTED, PRESSED, DONE, exit codes, timeouts, the unmute fallback — is covered
  * by `windows-host-control.spec.ts` on any OS.
  */
 
+import type { OverlayKeySetting, VoicebanKeys } from '@brobot-client/shared';
 import type { Clock } from '../core/clock';
-import type { HostAction, HostActionResult, HostControl } from './host-control';
+import type { HostAction, HostActionResult, HostControl, KeyPress } from './host-control';
 import {
     SHIM_DONE,
     SHIM_MUTED_PREFIX,
+    SHIM_NOT_PRESSED_PREFIX,
+    SHIM_PRESSED_PREFIX,
     SHIM_READY,
     blockEnterScript,
     isDeviceId,
@@ -51,6 +54,8 @@ export interface WindowsHostControlOptions {
 
 export const POWERSHELL = 'powershell.exe';
 
+const NO_KEYS: VoicebanKeys = { start: 'none', end: 'none' };
+
 export class WindowsHostControl implements HostControl {
     readonly kind = 'windows' as const;
 
@@ -65,14 +70,15 @@ export class WindowsHostControl implements HostControl {
     }
 
     blockEnter(durationMs: number): HostAction {
-        return this.run(blockEnterScript(durationMs, this.options.parentPid), durationMs, 'keyboard');
+        return this.run(blockEnterScript(durationMs, this.options.parentPid), durationMs, 'keyboard', NO_KEYS);
     }
 
-    muteMicrophone(durationMs: number): HostAction {
-        return this.run(muteMicrophoneScript(durationMs, this.options.parentPid), durationMs, 'microphone');
+    muteMicrophone(durationMs: number, keys: VoicebanKeys): HostAction {
+        const script = muteMicrophoneScript(durationMs, this.options.parentPid, keys);
+        return this.run(script, durationMs, 'microphone', keys);
     }
 
-    private run(script: string, durationMs: number, what: 'keyboard' | 'microphone'): HostAction {
+    private run(script: string, durationMs: number, what: 'keyboard' | 'microphone', keys: VoicebanKeys): HostAction {
         const { clock } = this.options;
         let resolveStarted: (result: HostActionResult) => void = () => undefined;
         let resolveDone: (result: HostActionResult) => void = () => undefined;
@@ -83,9 +89,11 @@ export class WindowsHostControl implements HostControl {
         let finished = false;
         let reportedDone = false;
         let killedByUs = false;
-        let stdoutBuffer = '';
         let stderrText = '';
         const mutedIds: string[] = [];
+        // Overlay keys the shim reported: START ones go on `started`, END ones on `done`.
+        const startKeys: KeyPress[] = [];
+        const endKeys: KeyPress[] = [];
         let startTimer: unknown = null;
         let overrunTimer: unknown = null;
         let graceTimer: unknown = null;
@@ -101,8 +109,10 @@ export class WindowsHostControl implements HostControl {
             if (finished) return;
             finished = true;
             clear();
-            if (!ready) resolveStarted(result.ok ? { ok: false, error: 'stopped before it started' } : result);
-            resolveDone(result);
+            if (!ready) {
+                resolveStarted(withKeys(result.ok ? { ok: false, error: 'stopped before it started' } : result, startKeys));
+            }
+            resolveDone(withKeys(result, endKeys));
         };
 
         let child: ShimProcess;
@@ -127,7 +137,7 @@ export class WindowsHostControl implements HostControl {
                 ready = true;
                 if (startTimer !== null) clock.clearTimeout(startTimer);
                 startTimer = null;
-                resolveStarted({ ok: true });
+                resolveStarted(withKeys({ ok: true }, startKeys));
                 // A shim that never says DONE is killed a little after it should have.
                 overrunTimer = clock.setTimeout(kill, durationMs + this.overrunMs);
             } else if (line === SHIM_DONE) {
@@ -135,18 +145,13 @@ export class WindowsHostControl implements HostControl {
             } else if (line.startsWith(SHIM_MUTED_PREFIX)) {
                 const id = line.slice(SHIM_MUTED_PREFIX.length).trim();
                 if (isDeviceId(id)) mutedIds.push(id);
+            } else {
+                const press = keyPressOf(line, keys);
+                if (press !== null) (press.when === 'start' ? startKeys : endKeys).push(press);
             }
         };
 
-        child.stdout?.on('data', chunk => {
-            stdoutBuffer += chunk.toString();
-            let newline = stdoutBuffer.indexOf('\n');
-            while (newline !== -1) {
-                onLine(stdoutBuffer.slice(0, newline).trim());
-                stdoutBuffer = stdoutBuffer.slice(newline + 1);
-                newline = stdoutBuffer.indexOf('\n');
-            }
-        });
+        onLines(child, onLine);
         child.stderr?.on('data', chunk => {
             // Bounded: PowerShell error records can be long, and only the
             // first lines say what went wrong.
@@ -164,29 +169,37 @@ export class WindowsHostControl implements HostControl {
                 finish(detail === undefined ? { ok: true } : { ok: true, detail });
                 return;
             }
-            if (!ready) {
-                finish({ ok: false, error: firstLine(stderrText) ?? `PowerShell exited with code ${code ?? 'none'}` });
+            const exited = firstLine(stderrText) ?? `PowerShell exited with code ${code ?? 'none'}`;
+            // It ended without undoing its work: killed by us after an overrun
+            // or a release that was not honoured, or by something else. The
+            // keyboard hook died with the process; a muted microphone and the
+            // overlay did not, so put them back from here. The end key is
+            // owed once the ban took hold (or its start key was pressed) and
+            // the shim had not pressed it yet.
+            const owedKey: OverlayKeySetting =
+                endKeys.length === 0 && (ready || startKeys.length > 0) ? keys.end : 'none';
+            if (mutedIds.length > 0 || owedKey !== 'none') {
+                void this.restore(mutedIds, owedKey).then(restored => {
+                    endKeys.push(...(restored.keys ?? []));
+                    if (!ready) {
+                        finish({ ok: false, error: exited });
+                    } else if (!restored.ok) {
+                        finish({
+                            ok: false,
+                            error:
+                                mutedIds.length > 0
+                                    ? `The microphone may still be muted: ${restored.error}`
+                                    : `Could not press ${owedKey}: ${restored.error}`,
+                        });
+                    } else if (mutedIds.length > 0) {
+                        finish({ ok: true, detail: 'the shim was stopped; the microphone was unmuted separately' });
+                    } else {
+                        finish(killedByUs ? { ok: true, detail: 'the shim was stopped' } : { ok: false, error: exited });
+                    }
+                });
                 return;
             }
-            // It took hold and then ended without undoing its work: killed by
-            // us after an overrun or a release that was not honoured, or by
-            // something else. The keyboard hook died with the process; the
-            // microphone did not, so put it back from here.
-            if (what === 'microphone' && mutedIds.length > 0) {
-                void this.unmute(mutedIds).then(restored =>
-                    finish(
-                        restored.ok
-                            ? { ok: true, detail: 'the shim was stopped; the microphone was unmuted separately' }
-                            : { ok: false, error: `The microphone may still be muted: ${restored.error}` },
-                    ),
-                );
-                return;
-            }
-            finish(
-                killedByUs
-                    ? { ok: true, detail: 'the shim was stopped' }
-                    : { ok: false, error: firstLine(stderrText) ?? `PowerShell exited with code ${code ?? 'none'}` },
-            );
+            finish(ready && killedByUs ? { ok: true, detail: 'the shim was stopped' } : { ok: false, error: exited });
         });
 
         startTimer = clock.setTimeout(() => {
@@ -212,30 +225,79 @@ export class WindowsHostControl implements HostControl {
         };
     }
 
-    /** Runs the unmute shim for devices a killed mute shim left muted. */
-    private unmute(ids: readonly string[]): Promise<HostActionResult> {
+    /**
+     * Runs the unmute shim for devices a killed mute shim left muted, and
+     * presses the overlay's end key it did not get to.
+     */
+    private restore(ids: readonly string[], endKey: OverlayKeySetting): Promise<HostActionResult> {
         return new Promise(resolve => {
             let stderrText = '';
+            const pressed: KeyPress[] = [];
             let child: ShimProcess;
             try {
-                child = this.options.spawn(POWERSHELL, powershellArgs(unmuteScript(ids)));
+                child = this.options.spawn(POWERSHELL, powershellArgs(unmuteScript(ids, endKey)));
             } catch (error) {
                 resolve({ ok: false, error: messageOf(error) });
                 return;
             }
+            onLines(child, line => {
+                const press = keyPressOf(line, { start: 'none', end: endKey });
+                if (press !== null) pressed.push(press);
+            });
             child.stderr?.on('data', chunk => {
                 if (stderrText.length < 4000) stderrText += chunk.toString();
             });
             child.on('error', error => resolve({ ok: false, error: error.message }));
             child.on('exit', code =>
                 resolve(
-                    code === 0
-                        ? { ok: true }
-                        : { ok: false, error: firstLine(stderrText) ?? `PowerShell exited with code ${code ?? 'none'}` },
+                    withKeys(
+                        code === 0
+                            ? { ok: true }
+                            : { ok: false, error: firstLine(stderrText) ?? `PowerShell exited with code ${code ?? 'none'}` },
+                        pressed,
+                    ),
                 ),
             );
         });
     }
+}
+
+/** Calls `onLine` with each whole, trimmed line the shim prints. */
+function onLines(child: ShimProcess, onLine: (line: string) => void): void {
+    let buffer = '';
+    child.stdout?.on('data', chunk => {
+        buffer += chunk.toString();
+        let newline = buffer.indexOf('\n');
+        while (newline !== -1) {
+            onLine(buffer.slice(0, newline).trim());
+            buffer = buffer.slice(newline + 1);
+            newline = buffer.indexOf('\n');
+        }
+    });
+}
+
+/** `PRESSED END`, `NOT PRESSED START <why>` → the key press it reports, or null. */
+function keyPressOf(line: string, keys: VoicebanKeys): KeyPress | null {
+    const pressed = line.startsWith(SHIM_PRESSED_PREFIX);
+    const rest = pressed
+        ? line.slice(SHIM_PRESSED_PREFIX.length)
+        : line.startsWith(SHIM_NOT_PRESSED_PREFIX)
+          ? line.slice(SHIM_NOT_PRESSED_PREFIX.length)
+          : null;
+    if (rest === null) return null;
+    const [phase = '', ...why] = rest.split(' ');
+    const when = phase === 'START' ? 'start' : phase === 'END' ? 'end' : null;
+    if (when === null) return null;
+    const key = keys[when];
+    if (key === 'none') return null;
+    return pressed
+        ? { when, key, ok: true }
+        : { when, key, ok: false, error: why.join(' ').trim() || 'Windows refused the key press' };
+}
+
+/** The result with `keys` attached, or as it was when there are none. */
+function withKeys(result: HostActionResult, keys: readonly KeyPress[]): HostActionResult {
+    return keys.length === 0 ? result : { ...result, keys: [...keys] };
 }
 
 function firstLine(text: string): string | null {

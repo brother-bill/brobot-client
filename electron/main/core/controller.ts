@@ -186,6 +186,7 @@ export class ClientController {
             ...this.settings,
             serverUrl,
             commands: { ...this.settings.commands, ...patch.commands },
+            voicebanKeys: { ...this.settings.voicebanKeys, ...patch.voicebanKeys },
             safeMode: patch.safeMode ?? this.settings.safeMode,
             paused: patch.paused ?? this.settings.paused,
             startWithWindows: patch.startWithWindows ?? this.settings.startWithWindows,
@@ -312,6 +313,13 @@ export class ClientController {
         for (const command of ['chatban', 'voiceban'] as const) {
             if (before.commands[command] !== after.commands[command]) {
                 say(`${command} ${after.commands[command] ? 'enabled' : 'disabled'}`);
+            }
+        }
+        for (const when of ['start', 'end'] as const) {
+            const key = after.voicebanKeys[when];
+            if (before.voicebanKeys[when] !== key) {
+                const moment = when === 'start' ? 'starts' : 'ends';
+                say(key === 'none' ? `Nothing is pressed when a voiceban ${moment}` : `${key} is pressed when a voiceban ${moment}`);
             }
         }
         if (before.startWithWindows !== after.startWithWindows) {

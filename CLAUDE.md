@@ -72,6 +72,14 @@ Neither runs on a push, and neither is in the gate.
   stop signal: a stdin that reads as closed from the start would end every ban
   at once.
 
+- **The voiceban overlay keys (F8 on, F9 off by default) are pressed by the
+  mute shim itself**, with `SendInput`, right after muting and right after
+  restoring — so the end key rides every way a ban ends, including the app
+  quitting. The unmute fallback presses it when a killed shim had not. Do not
+  move the presses into the main process: it may already be gone. The C# is
+  sent with indentation and whole-line comments stripped, and the encoded
+  command line must stay under Windows' 32,767 characters (a spec checks 30,000).
+
 - **Give every spawned shim's stdin an `error` listener** (`main.ts` does).
   `release()` writes `stop` to a process that may already have exited; an
   `EPIPE` on a stream with no listener is an uncaught exception in the main

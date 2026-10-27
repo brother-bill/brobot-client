@@ -11,11 +11,28 @@
  * here, not new code paths around it.
  */
 
+import type { OverlayKey, VoicebanKeys } from '@brobot-client/shared';
+
 export type HostActionKind = 'block-enter' | 'mute-microphone';
 
-export type HostActionResult =
+/** One overlay key a voiceban pressed (or tried to), for the log. */
+export interface KeyPress {
+    readonly when: 'start' | 'end';
+    readonly key: OverlayKey;
+    readonly ok: boolean;
+    readonly error?: string;
+}
+
+export type HostActionResult = (
     | { readonly ok: true; readonly detail?: string }
-    | { readonly ok: false; readonly error: string };
+    | { readonly ok: false; readonly error: string }
+) & {
+    /**
+     * Overlay keys pressed on the way: the start key on `started`, the end key
+     * on `done`. Absent when none were pressed.
+     */
+    readonly keys?: readonly KeyPress[];
+};
 
 /** One action in progress. */
 export interface HostAction {
@@ -44,7 +61,9 @@ export interface HostControl {
     blockEnter(durationMs: number): HostAction;
     /**
      * Mute the default recording device(s) for `durationMs`, then restore
-     * whatever mute state they had before.
+     * whatever mute state they had before. Presses `keys.start` once muted and
+     * `keys.end` once restored — however the action ends — so Streamlabs can
+     * show and hide its voiceban overlay.
      */
-    muteMicrophone(durationMs: number): HostAction;
+    muteMicrophone(durationMs: number, keys: VoicebanKeys): HostAction;
 }

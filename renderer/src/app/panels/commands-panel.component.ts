@@ -2,9 +2,12 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import {
     BAN_COMMANDS,
     DEFAULT_BAN_DURATION_MS,
+    OVERLAY_KEYS,
     TEST_DURATION_MS,
     formatDuration,
+    isOverlayKeySetting,
     type BanCommand,
+    type OverlayKeySetting,
 } from '@brobot-client/shared';
 import {
     LibBtnDirective,
@@ -12,6 +15,10 @@ import {
     LibCardContentComponent,
     LibCardHeaderComponent,
     LibCardTitleComponent,
+    LibFormFieldComponent,
+    LibLabelComponent,
+    LibOptionComponent,
+    LibSelectComponent,
     LibSlideToggleComponent,
 } from '@singularity/ngx-ui';
 import { ClientStore } from '../core/client.store';
@@ -31,6 +38,10 @@ import { COMMAND_COPY, formatCountdown } from '../core/describe';
         LibCardHeaderComponent,
         LibCardTitleComponent,
         LibCardContentComponent,
+        LibFormFieldComponent,
+        LibLabelComponent,
+        LibOptionComponent,
+        LibSelectComponent,
         LibSlideToggleComponent,
     ],
     styles: `
@@ -44,6 +55,11 @@ import { COMMAND_COPY, formatCountdown } from '../core/describe';
         .command__title {
             font: var(--ui-title-small);
             margin: 0;
+        }
+        .command__keys {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.5rem;
         }
         .command__active {
             font-weight: 600;
@@ -70,6 +86,34 @@ import { COMMAND_COPY, formatCountdown } from '../core/describe';
                                 (change)="setEnabled(row.command, $event)">
                                 Obey !{{ row.command }}
                             </lib-slide-toggle>
+                            @if (row.command === 'voiceban') {
+                                <div class="command__keys">
+                                    <lib-form-field [reserveSubscript]="false">
+                                        <lib-label>Key at start</lib-label>
+                                        <lib-select
+                                            [value]="settings.voicebanKeys.start"
+                                            (valueChange)="setVoicebanKey('start', $event)">
+                                            @for (key of keyChoices; track key) {
+                                                <lib-option [value]="key">{{ key === 'none' ? 'None' : key }}</lib-option>
+                                            }
+                                        </lib-select>
+                                    </lib-form-field>
+                                    <lib-form-field [reserveSubscript]="false">
+                                        <lib-label>Key at end</lib-label>
+                                        <lib-select
+                                            [value]="settings.voicebanKeys.end"
+                                            (valueChange)="setVoicebanKey('end', $event)">
+                                            @for (key of keyChoices; track key) {
+                                                <lib-option [value]="key">{{ key === 'none' ? 'None' : key }}</lib-option>
+                                            }
+                                        </lib-select>
+                                    </lib-form-field>
+                                </div>
+                                <p class="muted">
+                                    Pressed as the voiceban starts and ends, so Streamlabs can show and hide its
+                                    voiceban overlay. Bind the same keys as hotkeys in Streamlabs.
+                                </p>
+                            }
                             @if (row.remaining !== null) {
                                 <p class="command__active">
                                     {{ row.activeLabel }}{{ row.test ? ' (test)' : '' }}{{ row.dryRun ? ' (dry run)' : '' }}
@@ -105,6 +149,7 @@ import { COMMAND_COPY, formatCountdown } from '../core/describe';
 export class CommandsPanelComponent {
     protected readonly store = inject(ClientStore);
     protected readonly testDuration = formatDuration(TEST_DURATION_MS);
+    protected readonly keyChoices: readonly OverlayKeySetting[] = ['none', ...OVERLAY_KEYS];
 
     protected readonly rows = computed(() => {
         const settings = this.store.settings();
@@ -131,5 +176,11 @@ export class CommandsPanelComponent {
 
     protected setEnabled(command: BanCommand, enabled: boolean): void {
         void this.store.updateSettings({ commands: { [command]: enabled } });
+    }
+
+    /** `lib-select` emits `unknown`; only a key it offered is passed on. */
+    protected setVoicebanKey(when: 'start' | 'end', value: unknown): void {
+        if (!isOverlayKeySetting(value) || this.store.settings()?.voicebanKeys[when] === value) return;
+        void this.store.updateSettings({ voicebanKeys: { [when]: value } });
     }
 }

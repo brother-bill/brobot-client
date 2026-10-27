@@ -28,4 +28,24 @@ describe('parseSettingsFile', () => {
         expect(settings.safeMode).toBe(true);
         expect(secret).toBeNull();
     });
+
+    it('gives a file from before the overlay keys F8 and F9, as the old client pressed', () => {
+        const { settings } = parseSettingsFile({ version: 1, serverUrl: 'wss://admin.brobot.live/api/ashketchum' });
+        expect(DEFAULT_SETTINGS.voicebanKeys).toEqual({ start: 'F8', end: 'F9' });
+        expect(settings.voicebanKeys).toEqual({ start: 'F8', end: 'F9' });
+    });
+
+    it('keeps the overlay keys it wrote, none included, and repairs them key by key', () => {
+        const settings = { ...DEFAULT_SETTINGS, voicebanKeys: { start: 'none', end: 'F12' } } as const;
+        expect(parseSettingsFile(JSON.parse(JSON.stringify(toSettingsFile(settings, null)))).settings).toEqual(settings);
+        expect(parseSettingsFile({ voicebanKeys: { start: 'Enter', end: 'F10' } }).settings.voicebanKeys).toEqual({
+            start: 'F8',
+            end: 'F10',
+        });
+        expect(parseSettingsFile({ voicebanKeys: 'F8' }).settings.voicebanKeys).toEqual({ start: 'F8', end: 'F9' });
+        expect(parseSettingsFile({ voicebanKeys: { start: 'f8', end: 'F25' } }).settings.voicebanKeys).toEqual({
+            start: 'F8',
+            end: 'F9',
+        });
+    });
 });

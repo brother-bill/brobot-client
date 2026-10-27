@@ -28,10 +28,21 @@
  * reported. A streamer is never left with a dead Enter key or a muted mic
  * because the app went away.
  *
+ * ## The overlay keys
+ *
+ * A voiceban also presses a key as it starts and another as it ends (F8 and F9
+ * by default): Streamlabs Desktop has them bound as global hotkeys that show
+ * and hide its voiceban overlay. They are pressed with `SendInput` by the mute
+ * shim itself — after muting, and after restoring — so the end key goes with
+ * the unmute on every path: duration over, `stop`, the app gone. The unmute
+ * fallback presses it too when a killed shim had not.
+ *
  * The C# is restricted to C# 5: Windows PowerShell's `Add-Type` compiles with
  * the .NET Framework's CodeDom compiler, which predates string interpolation,
  * `?.` and expression-bodied members.
  */
+
+import { OVERLAY_KEYS, type OverlayKeySetting, type VoicebanKeys } from '@brobot-client/shared';
 
 /** Printed once the hook is installed / the mic is muted. */
 export const SHIM_READY = 'READY';
@@ -39,6 +50,10 @@ export const SHIM_READY = 'READY';
 export const SHIM_DONE = 'DONE';
 /** `MUTED <device id>`: a device this run muted and will unmute. */
 export const SHIM_MUTED_PREFIX = 'MUTED ';
+/** `PRESSED START` / `PRESSED END`: an overlay key was pressed. */
+export const SHIM_PRESSED_PREFIX = 'PRESSED ';
+/** `NOT PRESSED START <why>`: Windows refused the key press. */
+export const SHIM_NOT_PRESSED_PREFIX = 'NOT PRESSED ';
 
 const CSHARP = String.raw`
 using System;
@@ -86,9 +101,13 @@ internal interface IAudioEndpointVolume {
 public static class Shim {
     private static readonly ManualResetEvent Stop = new ManualResetEvent(false);
 
+    // Never throws: once the app has gone nobody reads stdout, and the shim
+    // still has a microphone to unmute and a key to press.
     private static void Say(string line) {
-        Console.Out.WriteLine(line);
-        Console.Out.Flush();
+        try {
+            Console.Out.WriteLine(line);
+            Console.Out.Flush();
+        } catch (Exception) { }
     }
 
     // Ends the action early on a "stop" line, or once the app that started
@@ -209,6 +228,79 @@ public static class Shim {
         return 0;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MOUSEINPUT {
+        public int dx;
+        public int dy;
+        public uint mouseData;
+        public uint dwFlags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KEYBDINPUT {
+        public ushort wVk;
+        public ushort wScan;
+        public uint dwFlags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    // The union is as large as its largest member (MOUSEINPUT), and SendInput
+    // refuses an INPUT whose size is not exactly sizeof(INPUT).
+    [StructLayout(LayoutKind.Explicit)]
+    private struct INPUTUNION {
+        [FieldOffset(0)] public MOUSEINPUT mi;
+        [FieldOffset(0)] public KEYBDINPUT ki;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct INPUT {
+        public uint type;
+        public INPUTUNION u;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+    [DllImport("user32.dll")]
+    private static extern uint MapVirtualKey(uint uCode, uint uMapType);
+
+    private const uint INPUT_KEYBOARD = 1;
+    private const uint KEYEVENTF_KEYUP = 0x0002;
+    // Long enough for a hotkey listener that polls the key state (OBS's
+    // polls every 25 ms) to see the key down.
+    private const int KEY_HOLD_MS = 60;
+
+    private static int SendKey(int vk, bool up) {
+        INPUT[] input = new INPUT[1];
+        input[0].type = INPUT_KEYBOARD;
+        input[0].u.ki.wVk = (ushort)vk;
+        input[0].u.ki.wScan = (ushort)MapVirtualKey((uint)vk, 0);
+        input[0].u.ki.dwFlags = up ? KEYEVENTF_KEYUP : 0;
+        if (SendInput(1, input, Marshal.SizeOf(typeof(INPUT))) == 1) return 0;
+        int error = Marshal.GetLastWin32Error();
+        return error == 0 ? -1 : error;
+    }
+
+    // One overlay key: down, held, up. vk 0 is "none". "when" is START or END,
+    // reported back so the app can log it.
+    private static void PressKey(int vk, string when) {
+        if (vk == 0) return;
+        int error = SendKey(vk, false);
+        if (error != 0) {
+            Say("${SHIM_NOT_PRESSED_PREFIX}" + when + " Windows refused the key press (error " + error + ")");
+            return;
+        }
+        Thread.Sleep(KEY_HOLD_MS);
+        // A key left down would be stuck for every other app: try twice.
+        if (SendKey(vk, true) != 0) {
+            Thread.Sleep(KEY_HOLD_MS);
+            SendKey(vk, true);
+        }
+        Say("${SHIM_PRESSED_PREFIX}" + when);
+    }
+
     private const int eCapture = 1;
     private const int eConsole = 0;
     private const int eCommunications = 2;
@@ -227,8 +319,9 @@ public static class Shim {
 
     // Mutes the default recording device for both roles Windows keeps one for
     // (Console and Communications; usually the same device), remembering which
-    // were not muted already, and restores exactly those.
-    public static int MuteMicrophone(int milliseconds, int parentPid) {
+    // were not muted already, and restores exactly those. The overlay keys go
+    // either side: startVk once muted, endVk once restored (0 for none).
+    public static int MuteMicrophone(int milliseconds, int parentPid, int startVk, int endVk) {
         IMMDeviceEnumerator enumerator = Enumerator();
         List<string> seen = new List<string>();
         List<IAudioEndpointVolume> muted = new List<IAudioEndpointVolume>();
@@ -252,17 +345,21 @@ public static class Shim {
             Console.Error.WriteLine("No default recording device is set in Windows sound settings");
             return 3;
         }
+        PressKey(startVk, "START");
         Say("${SHIM_READY}");
         WatchForStop(parentPid);
         Stop.WaitOne(milliseconds);
         foreach (IAudioEndpointVolume volume in muted) {
             volume.SetMute(false, ref context);
         }
+        PressKey(endVk, "END");
         Say("${SHIM_DONE}");
         return 0;
     }
 
-    public static int Unmute(string[] ids) {
+    // After a mute shim was killed: unmute what it muted, and press the end
+    // key it did not get to (0 for none).
+    public static int Unmute(string[] ids, int endVk) {
         IMMDeviceEnumerator enumerator = Enumerator();
         Guid context = Guid.Empty;
         int failures = 0;
@@ -272,6 +369,7 @@ public static class Shim {
             IAudioEndpointVolume volume = VolumeOf(device);
             if (volume == null || volume.SetMute(false, ref context) != 0) failures++;
         }
+        PressKey(endVk, "END");
         Say("${SHIM_DONE}");
         return failures == 0 ? 0 : 4;
     }
@@ -280,11 +378,13 @@ public static class Shim {
 `;
 
 /**
- * The C# with indentation stripped. The whole script travels base64-encoded
- * UTF-16 on the command line, which Windows caps at 32,767 characters; the
- * indentation alone is a fifth of it.
+ * The C# with indentation and whole-line comments stripped. The whole script
+ * travels base64-encoded UTF-16 on the command line, which Windows caps at
+ * 32,767 characters; the indentation and the comments are a third of it.
  */
-const COMPACT_CSHARP = CSHARP.replace(/^[ \t]+/gm, '').trim();
+const COMPACT_CSHARP = CSHARP.replace(/^[ \t]+/gm, '')
+    .replace(/^\/\/.*\n/gm, '')
+    .trim();
 
 function wrap(invocation: string): string {
     return [
@@ -310,8 +410,18 @@ export function blockEnterScript(durationMs: number, parentPid: number): string 
     return wrap(`[Brobot.Shim]::BlockEnter(${wholeMilliseconds(durationMs)}, ${processId(parentPid)})`);
 }
 
-export function muteMicrophoneScript(durationMs: number, parentPid: number): string {
-    return wrap(`[Brobot.Shim]::MuteMicrophone(${wholeMilliseconds(durationMs)}, ${processId(parentPid)})`);
+/** The Windows virtual-key code for an overlay key: VK_F1 is 0x70, VK_F24 0x87. `none` is 0. */
+export function virtualKeyOf(key: OverlayKeySetting): number {
+    if (key === 'none') return 0;
+    const index = OVERLAY_KEYS.indexOf(key);
+    if (index === -1) throw new Error(`not an overlay key: ${JSON.stringify(key)}`);
+    return 0x70 + index;
+}
+
+export function muteMicrophoneScript(durationMs: number, parentPid: number, keys: VoicebanKeys): string {
+    const ms = wholeMilliseconds(durationMs);
+    const pid = processId(parentPid);
+    return wrap(`[Brobot.Shim]::MuteMicrophone(${ms}, ${pid}, ${virtualKeyOf(keys.start)}, ${virtualKeyOf(keys.end)})`);
 }
 
 /**
@@ -324,12 +434,13 @@ export function isDeviceId(value: string): boolean {
     return DEVICE_ID.test(value);
 }
 
-export function unmuteScript(deviceIds: readonly string[]): string {
+/** Unmutes `deviceIds`, then presses `endKey` (the overlay off) unless it is `none`. */
+export function unmuteScript(deviceIds: readonly string[], endKey: OverlayKeySetting): string {
     for (const id of deviceIds) {
         if (!isDeviceId(id)) throw new Error(`refusing an unexpected device id: ${JSON.stringify(id)}`);
     }
     const list = deviceIds.map(id => `'${id}'`).join(',');
-    return wrap(`[Brobot.Shim]::Unmute([string[]]@(${list}))`);
+    return wrap(`[Brobot.Shim]::Unmute([string[]]@(${list}), ${virtualKeyOf(endKey)})`);
 }
 
 /**
