@@ -120,6 +120,39 @@ describe('AppComponent', () => {
         expect(obey.map(s => s.checked)).toEqual([true, false]);
     });
 
+    describe('stream overlay', () => {
+        const OVERLAY_URL = 'https://brobot.live/twitch/supahot/overlay';
+
+        async function renderWith(overlays: number | null): Promise<HTMLElement> {
+            const fixture = TestBed.createComponent(AppComponent);
+            await fixture.whenStable();
+            bridge.push('client.snapshot', { ...SNAPSHOT, connection: { ...SNAPSHOT.connection, overlays } });
+            fixture.detectChanges();
+            await fixture.whenStable();
+            return fixture.nativeElement as HTMLElement;
+        }
+
+        it('shows it connected, with no instructions', async () => {
+            const root = await renderWith(1);
+            expect(root.textContent).toContain('Overlay: connected');
+            expect(root.textContent).not.toContain(OVERLAY_URL);
+        });
+
+        it('shows it not connected, with the browser source URL and the setting to turn off', async () => {
+            const root = await renderWith(0);
+            expect(root.textContent).toContain('Overlay: not connected — roars and quacks will be refunded');
+            expect(root.querySelector('.overlay-url')?.textContent).toBe(OVERLAY_URL);
+            expect(root.textContent).toContain('turn off “Shutdown source when not visible”');
+        });
+
+        it('shows it unknown before brobot says, not as not connected', async () => {
+            const root = await renderWith(null);
+            expect(root.textContent).toContain('Overlay: unknown');
+            expect(root.textContent).not.toContain('not connected');
+            expect(root.textContent).not.toContain(OVERLAY_URL);
+        });
+    });
+
     it('drives the host only through named operations', async () => {
         const root = await render();
         const test = [...root.querySelectorAll('button')].find(b => b.textContent.includes('Test chat ban'));

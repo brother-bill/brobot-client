@@ -188,6 +188,37 @@ describe('ConnectionManager', () => {
         expect(logs.at(-1)).toEqual({ tone: 'warning', message: 'Ignored a malformed message from the server' });
     });
 
+    it("keeps brobot's count of stream overlays, unknown until it says and again on every new connection", () => {
+        manager.configure(TARGET);
+        expect(manager.status.overlays).toBeNull();
+        latest().handlers.onOpen();
+        // an older brobot never sends overlay_status: it stays unknown
+        expect(manager.status.overlays).toBeNull();
+
+        latest().handlers.onMessage('{"type":"overlay_status","connected":0}');
+        expect(manager.status.overlays).toBe(0);
+        expect(logs.at(-1)).toEqual({
+            tone: 'warning',
+            message: 'Stream overlay not connected: roars and quacks will be refunded',
+        });
+
+        latest().handlers.onMessage('{"type":"overlay_status","connected":1}');
+        expect(manager.status.overlays).toBe(1);
+        expect(logs.at(-1)).toEqual({ tone: 'success', message: 'Stream overlay connected' });
+
+        // a second browser source is not news
+        const lines = logs.length;
+        latest().handlers.onMessage('{"type":"overlay_status","connected":2}');
+        expect(manager.status.overlays).toBe(2);
+        expect(logs).toHaveLength(lines);
+
+        latest().handlers.onClose(1006, '');
+        expect(manager.status.overlays).toBeNull();
+        clock.advance(manager.status.nextRetryAt! - clock.now());
+        latest().handlers.onOpen();
+        expect(manager.status.overlays).toBeNull();
+    });
+
     it('explains a refused secret in words', () => {
         manager.configure(TARGET);
         latest().handlers.onError(new Error('Unexpected server response: 401'));

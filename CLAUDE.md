@@ -116,6 +116,12 @@ Neither runs on a push, and neither is in the gate.
   too, with an `error`. brobot's vote counter waits for it; without it chat can
   never vote again until the client reconnects.
 
+- **"Overlay: unknown" is not "Overlay: not connected".** brobot's
+  `overlay_status` frame counts the stream overlays (the browser source on
+  `/api/admin-ui`, where roars play); `ConnectionStatus.overlays` is `null`
+  until it arrives, and again on every new connection, so a brobot too old to
+  send it never reads as a broken overlay.
+
 - **Close hides, Quit quits.** `window-all-closed` deliberately does nothing.
   A second launch focuses the first (single-instance lock).
 

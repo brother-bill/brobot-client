@@ -161,7 +161,7 @@ export class ConnectionManager {
         const current = (): boolean => generation === this.generation;
         this.pendingError = null;
         this.openedAt = null;
-        this.update({ ...this._status, state: 'connecting', nextRetryAt: null, connectedAt: null });
+        this.update({ ...this._status, state: 'connecting', nextRetryAt: null, connectedAt: null, overlays: null });
 
         this.connectTimer = this.options.clock.setTimeout(() => {
             this.connectTimer = null;
@@ -211,6 +211,8 @@ export class ConnectionManager {
             lastHeardAt: now,
             lastError: null,
             nextRetryAt: null,
+            // brobot says how many overlays it sees right after the upgrade; until then, unknown
+            overlays: null,
         });
         this.options.onLog('success', wasRetrying ? 'Reconnected to brobot' : 'Connected to brobot');
         this.armHeartbeat();
@@ -239,11 +241,29 @@ export class ConnectionManager {
             this.options.onHorrorChat?.(event);
             return;
         }
+        if (event.type === 'overlay_status') {
+            this.overlayStatus(event.connected);
+            return;
+        }
         if (event.type === 'chatban' || event.type === 'voiceban') {
             this.options.onBan(event);
             return;
         }
         this.options.onHotkeyComplete?.(event);
+    }
+
+    /**
+     * brobot's count of stream overlays. One line per change of fortune: the
+     * overlay coming or going, or brobot seeing none on a new connection.
+     */
+    private overlayStatus(overlays: number): void {
+        const was = this._status.overlays;
+        this.update({ ...this._status, overlays });
+        if (overlays === 0 && (was === null || was > 0)) {
+            this.options.onLog('warning', 'Stream overlay not connected: roars and quacks will be refunded');
+        } else if (overlays > 0 && was === 0) {
+            this.options.onLog('success', 'Stream overlay connected');
+        }
     }
 
     /** Any sign of life from the server pushes the dead-man timer back. */
@@ -289,6 +309,7 @@ export class ConnectionManager {
             nextRetryAt: now + delay,
             lastError: reason,
             connectedAt: null,
+            overlays: null,
         });
         // One line per change of fortune, not one per retry: an hour-long
         // outage at a 60 s cap would otherwise fill the log with one sentence.

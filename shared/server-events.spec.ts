@@ -50,6 +50,21 @@ describe('parseStreamerServerEvent', () => {
         expect(parseStreamerServerEvent('{"type":"ping"}')).toBeNull();
     });
 
+    it('reads how many stream overlays brobot sees, and nothing that is not a count', () => {
+        expect(parseStreamerServerEvent('{"type":"overlay_status","connected":0}')).toEqual({
+            type: 'overlay_status',
+            connected: 0,
+        });
+        expect(parseStreamerServerEvent('{"type":"overlay_status","connected":2}')).toEqual({
+            type: 'overlay_status',
+            connected: 2,
+        });
+        expect(parseStreamerServerEvent('{"type":"overlay_status"}')).toBeNull();
+        expect(parseStreamerServerEvent('{"type":"overlay_status","connected":true}')).toBeNull();
+        expect(parseStreamerServerEvent('{"type":"overlay_status","connected":-1}')).toBeNull();
+        expect(parseStreamerServerEvent('{"type":"overlay_status","connected":1.5}')).toBeNull();
+    });
+
     it('ignores unknown types, the 2022 frame shape, and anything that is not an object', () => {
         expect(parseStreamerServerEvent('{"type":"overlay"}')).toBeNull();
         expect(parseStreamerServerEvent('{"event":"chatban","data":null}')).toBeNull();

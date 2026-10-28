@@ -34,6 +34,13 @@ export interface ConnectionStatus {
      * 15 s, so a value much older than that means the link is going stale.
      */
     readonly lastHeardAt: number | null;
+    /**
+     * How many stream overlays (the Streamlabs/OBS browser source, where roars
+     * and quacks play) brobot says are connected, from its `overlay_status`
+     * frame. `null` until it says: on every new connection, while not
+     * connected, and always with a brobot too old to send it.
+     */
+    readonly overlays: number | null;
 }
 
 export const INITIAL_CONNECTION_STATUS: ConnectionStatus = {
@@ -43,6 +50,7 @@ export const INITIAL_CONNECTION_STATUS: ConnectionStatus = {
     lastError: null,
     connectedAt: null,
     lastHeardAt: null,
+    overlays: null,
 };
 
 /** Which HostControl implementation is answering commands right now. */

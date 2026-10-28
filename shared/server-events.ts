@@ -91,6 +91,13 @@ export function parseStreamerServerEvent(frame: string): StreamerServerEvent | n
             const error = record['error'];
             return typeof error === 'string' && error.length > 0 ? { type, error: error.slice(0, 300) } : { type };
         }
+        case 'overlay_status': {
+            // How many stream overlays (browser sources) brobot sees; 0 means it refunds every roar.
+            const connected = record['connected'];
+            return typeof connected === 'number' && Number.isInteger(connected) && connected >= 0
+                ? { type: 'overlay_status', connected }
+                : null;
+        }
         case 'ping': {
             const sentAt = record['sentAt'];
             return typeof sentAt === 'number' && Number.isFinite(sentAt) ? { type: 'ping', sentAt } : null;
