@@ -9,9 +9,12 @@ import {
     LibLiveDotComponent,
 } from '@singularity/ngx-ui';
 import { ClientStore } from '../core/client.store';
-import { describeConnection, formatAgo } from '../core/describe';
+import { STREAM_OVERLAY_URL, describeConnection, describeStreamOverlay, formatAgo } from '../core/describe';
 
-/** The connection, in words, with the one button that helps when it is down. */
+/**
+ * The connection, in words, with the one button that helps when it is down —
+ * and whether brobot sees the stream overlay, with how to fix it when not.
+ */
 @Component({
     selector: 'app-status-panel',
     standalone: true,
@@ -25,6 +28,13 @@ import { describeConnection, formatAgo } from '../core/describe';
         LibCardContentComponent,
         LibLiveDotComponent,
     ],
+    styles: `
+        .overlay-url {
+            font-family: var(--ui-font-family-mono);
+            overflow-wrap: anywhere;
+            user-select: all;
+        }
+    `,
     template: `
         <lib-card>
             <lib-card-header>
@@ -36,6 +46,23 @@ import { describeConnection, formatAgo } from '../core/describe';
                     <p>{{ v.detail }}</p>
                     @if (heard(); as ago) {
                         <p class="muted">Last heard from brobot {{ ago }}.</p>
+                    }
+                    @if (overlay(); as o) {
+                        <lib-live-dot [state]="o.dot" [label]="o.label" />
+                        @if (o.problem) {
+                            <lib-alert-banner variant="warn">
+                                <span class="stack">
+                                    <span>
+                                        Put this URL in the Streamlabs/OBS browser source:
+                                        <code class="overlay-url">{{ overlayUrl }}</code>
+                                    </span>
+                                    <span>
+                                        In its properties, turn off “Shutdown source when not visible”, or the
+                                        overlay disconnects whenever its scene is not showing.
+                                    </span>
+                                </span>
+                            </lib-alert-banner>
+                        }
                     }
                     <div class="row">
                         <button
@@ -82,6 +109,13 @@ export class StatusPanelComponent {
         const settings = this.store.settings();
         if (status === null || settings === null) return null;
         return describeConnection(status, settings.serverUrl, settings.hasSecret, this.store.now());
+    });
+
+    protected readonly overlayUrl = STREAM_OVERLAY_URL;
+
+    protected readonly overlay = computed(() => {
+        const status = this.store.connection();
+        return status === null ? null : describeStreamOverlay(status.overlays);
     });
 
     protected readonly heard = computed(() => {

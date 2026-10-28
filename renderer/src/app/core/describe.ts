@@ -58,6 +58,27 @@ export function describeConnection(
     }
 }
 
+/** The browser source Streamlabs/OBS must show for roars and quacks to play (brobot's `/twitch/<channel>/overlay`). */
+export const STREAM_OVERLAY_URL = 'https://brobot.live/twitch/supahot/overlay';
+
+export interface StreamOverlayView {
+    readonly dot: LibLiveDotState;
+    readonly label: string;
+    /** Not connected: the window says how to fix it. */
+    readonly problem: boolean;
+}
+
+/**
+ * Beside the server status: whether brobot sees the stream overlay. `null` is
+ * "brobot has not said" (not connected, or a brobot older than
+ * `overlay_status`), which is not the same claim as "not connected".
+ */
+export function describeStreamOverlay(overlays: number | null): StreamOverlayView {
+    if (overlays === null) return { dot: 'idle', label: 'Overlay: unknown', problem: false };
+    if (overlays > 0) return { dot: 'nominal', label: 'Overlay: connected', problem: false };
+    return { dot: 'fault', label: 'Overlay: not connected — roars and quacks will be refunded', problem: true };
+}
+
 export const COMMAND_COPY: Readonly<Record<BanCommand, { title: string; effect: string; active: string }>> = {
     chatban: {
         title: 'Chat ban',

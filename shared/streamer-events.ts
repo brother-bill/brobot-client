@@ -1,4 +1,4 @@
-// Copied verbatim from brother-bill/brobot @ 9968ced (the streamer hotkeys: create_marker, create_prediction, play_ad),
+// Copied verbatim from brother-bill/brobot @ 33b950b (overlay_status: whether the stream overlay is connected),
 // src/modules/twitch/streamer-events.ts. Do not edit here without making the
 // same change there: this file IS the wire contract, and the two copies are
 // how the client and the server agree on it. The client-side half (parsing
@@ -111,13 +111,24 @@ export interface HotkeyCompleteEvent {
     error?: string;
 }
 
+/**
+ * How many stream overlays are connected: the browser source on `/api/admin-ui`, where Pokémon roars and quacks play.
+ * Sent when this client connects and whenever an overlay connects or goes away. This socket being up says nothing
+ * about that one: with `connected: 0`, brobot refunds every roar ("Streamer not connected to browser source").
+ */
+export interface OverlayStatusEvent {
+    type: 'overlay_status';
+    connected: number;
+}
+
 export type StreamerServerEvent =
     | ChatbanEvent
     | VoicebanEvent
     | PingEvent
     | HorrorEvent
     | HorrorChatEvent
-    | HotkeyCompleteEvent;
+    | HotkeyCompleteEvent
+    | OverlayStatusEvent;
 
 // ── client → brobot ──────────────────────────────────────────────────────
 

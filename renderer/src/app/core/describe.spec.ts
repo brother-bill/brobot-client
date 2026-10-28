@@ -3,6 +3,7 @@ import { INITIAL_CONNECTION_STATUS } from '@brobot-client/shared';
 import {
     describeConnection,
     describeShortcut,
+    describeStreamOverlay,
     formatAgo,
     formatCountdown,
     overlayNotice,
@@ -43,6 +44,25 @@ describe('describeConnection', () => {
         expect(describeConnection(INITIAL_CONNECTION_STATUS, URL, false, 0).detail).toBe(
             'Enter the server address and the secret in Settings to connect.',
         );
+    });
+});
+
+describe('describeStreamOverlay', () => {
+    it('says connected when brobot sees a browser source', () => {
+        expect(describeStreamOverlay(1)).toEqual({ dot: 'nominal', label: 'Overlay: connected', problem: false });
+        expect(describeStreamOverlay(2).label).toBe('Overlay: connected');
+    });
+
+    it('says what is lost when brobot sees none', () => {
+        expect(describeStreamOverlay(0)).toEqual({
+            dot: 'fault',
+            label: 'Overlay: not connected — roars and quacks will be refunded',
+            problem: true,
+        });
+    });
+
+    it('says unknown, not "not connected", until brobot says (an older brobot never does)', () => {
+        expect(describeStreamOverlay(null)).toEqual({ dot: 'idle', label: 'Overlay: unknown', problem: false });
     });
 });
 

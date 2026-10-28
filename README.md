@@ -47,6 +47,15 @@ The lamp at the top turns to **Connected**. From now on brobot **starts with
 Windows**, straight into the tray (turn that off under Settings, or in the tray
 menu).
 
+Under it, **Overlay** says whether brobot can see your stream overlay — the
+browser source in Streamlabs/OBS where Pokémon roars and quacks play. brobot
+refunds every roar and quack while it sees none, so **Overlay: not connected**
+is worth fixing before you go live: the window shows the URL to put in the
+browser source (`https://brobot.live/twitch/supahot/overlay`) and reminds you
+to turn off **Shutdown source when not visible** in its properties, or the
+overlay drops out whenever its scene is not showing. **Overlay: unknown** means
+brobot has not said yet (not connected, or a brobot from before it could).
+
 Want to see it work first? Turn on **Safe mode** before saving the secret:
 every command is logged but your keyboard and microphone are left alone.
 
@@ -186,6 +195,10 @@ The portable exe cannot update itself: download the new one from the
   "Pressed F8 (overlay on)", then check Streamlabs has that key bound under
   Settings → Hotkeys. If Streamlabs runs as administrator, Windows may keep
   key presses from a normal app away from it: run both the same way.
+- **"Overlay: not connected"** — Streamlabs/OBS is not showing brobot's
+  overlay, so roars and quacks are refunded. Check the browser source's URL is
+  the one the window shows, that **Shutdown source when not visible** is off,
+  and that the source is in the scene you stream.
 - **Enter still works somewhere during a chat ban** — the block is a
   system-wide Windows keyboard hook; a program that reads the keyboard below
   that level could still see Enter. Tell the owner which program it was.
