@@ -283,6 +283,15 @@ To ship one:
    your own `gh` login, checks the installer against `brobot-update.json`, and
    creates release `v<version>` with the installer, the portable exe and the
    manifest.
+4. The same script then tells the fleet board the release shipped:
+   `POST /webhooks/deployed` `{app: "brobot-client", sha: <released commit>}`,
+   which stamps brobot-client's last deploy and moves its merged tickets out
+   of "Ready to deploy". The `x-deploy-token` is read with your own 1Password
+   login (`op read op://ci-deploy/DEPLOY_CALLBACK_TOKEN/credential`; set
+   `FLEET_DEPLOY_TOKEN_REF` to read another item, `FLEET_API_URL` to aim at
+   another API). This step is best-effort: if `op` is missing or signed out,
+   or the API does not answer 2xx, it prints a warning and the command to
+   send by hand, and the release still counts as done (exit 0).
 
 Each copy picks it up within four hours or at its next start. The app reads
 `brobot-update.json` (written at build time by `scripts/release-manifest.mjs`)
