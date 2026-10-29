@@ -47,7 +47,7 @@ Neither runs on a push, and neither is in the gate.
 | `electron/main/{main,tray}.ts`, `ipc/` | Wiring only |
 | `renderer/` | The window: one page, four panels, a signals store |
 | `scripts/dist-linux.sh` | The Linux cross-build of the installer and the portable exe |
-| `scripts/release-manifest.mjs`, `scripts/publish-release.sh` | The update manifest written at build time, and publishing a build as a GitHub Release (README, "Releasing an update") |
+| `scripts/release-manifest.mjs`, `scripts/publish-release.sh` | The update manifest written at build time, and publishing a build as a GitHub Release, then stamping it on the fleet board (best-effort; README, "Releasing an update") |
 
 ## The things that will bite you
 
