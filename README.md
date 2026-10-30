@@ -59,6 +59,38 @@ brobot has not said yet (not connected, or a brobot from before it could).
 Want to see it work first? Turn on **Safe mode** before saving the secret:
 every command is logged but your keyboard and microphone are left alone.
 
+### The overlay in Streamlabs
+
+Pokémon roars and quacks are a web page. Streamlabs shows it as a browser
+source and plays its sound; brobot only tells the page what to show. Set it
+up once, in the scene you stream:
+
+1. **Add a Browser Source.** URL
+   `https://brobot.live/twitch/supahot/overlay?v=2026`, width 1920, height
+   1080. Untick **Shutdown source when not visible**. Tick **Control audio via
+   OBS**. Click **Refresh Cache of Current Page**, then Done. Drag the source
+   to the top of the list so the game does not cover it.
+2. **Sound for viewers.** The source now has its own row in the **Mixer**;
+   leave it unmuted. When a roar plays, its meter moves — that is the sound
+   going out on stream.
+3. **Sound for you.** Click the gear above the Mixer (**Advanced Audio
+   Settings**), set the browser source's **Audio Monitoring** to **Monitor
+   and Output**, expand the window with the small arrow and set **Audio
+   Monitoring Device** to your headset by name (Settings → Audio no longer
+   has it). If that device is **Voicemeeter Input**, open Voicemeeter: the
+   **Voicemeeter VAIO** strip needs **A1** lit, and A1 (top right) must be
+   your headset (the WDM entry). Meters moving but silence? **Menu → Restart
+   Audio Engine**. Turn **B1** off on that strip, or set the browser source
+   to **Monitor Only**, or viewers hear every roar twice.
+4. **Check it.** This window says **Overlay: connected**. Redeem a Pokemon
+   Roar: the Pokémon appears and roars in Streamlabs, and you hear it.
+
+The `?v=2026` matters. Streamlabs keeps its own page cache, separate from
+Chrome, and in October 2026 it ran the 2022 overlay page from that cache for
+weeks: it connected to brobot (this window even said connected) but ignored
+every roar and quack. Whenever the overlay is connected yet shows nothing,
+change the number after `?v=` or click **Refresh Cache of Current Page**.
+
 ### Where it lives
 
 brobot's icon is in the **system tray**, next to the clock at the bottom-right
@@ -199,6 +231,18 @@ The portable exe cannot update itself: download the new one from the
   overlay, so roars and quacks are refunded. Check the browser source's URL is
   the one the window shows, that **Shutdown source when not visible** is off,
   and that the source is in the scene you stream.
+- **"Overlay: connected" but nothing shows in Streamlabs** — Streamlabs is
+  running an old copy of the page from its cache. Change the number after
+  `?v=` in the browser source URL, or click **Refresh Cache of Current Page**.
+  Right-click the source → **Interact** shows exactly what Streamlabs renders.
+- **The Pokémon shows but you hear nothing** — if the source's meter in the
+  Mixer moves, viewers hear it and only your monitoring is off: see
+  [The overlay in Streamlabs](#the-overlay-in-streamlabs), step 3 (monitoring
+  device, Voicemeeter A1). If the meter does not move, **Control audio via
+  OBS** is unticked and the sound went to the Windows default device instead.
+- **The overlay is silent in a normal browser tab** — Chrome does not play
+  sound on a page nobody has clicked. Click once inside the tab. It is only a
+  test tab; the stream uses Streamlabs.
 - **Enter still works somewhere during a chat ban** — the block is a
   system-wide Windows keyboard hook; a program that reads the keyboard below
   that level could still see Enter. Tell the owner which program it was.
