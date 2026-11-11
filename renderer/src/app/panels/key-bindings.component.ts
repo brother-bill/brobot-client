@@ -158,9 +158,16 @@ const DESCRIPTION: Readonly<Record<KeyBindingId, string>> = {
                                             </button>
                                         </div>
                                     } @else {
-                                        <div #confirm class="stack" (keydown.escape)="finish()">
+                                        <!-- Escape bubbles up here from Save / Cancel; the div
+                                             itself takes no focus, so it is a labelled group. -->
+                                        <div
+                                            #confirm
+                                            class="stack"
+                                            role="group"
+                                            [attr.aria-labelledby]="'confirm-' + row.id"
+                                            (keydown.escape)="finish()">
                                             <lib-alert-banner [variant]="current.errors.length > 0 ? 'error' : 'warn'">
-                                                <span libAlertTitle>
+                                                <span libAlertTitle [id]="'confirm-' + row.id">
                                                     {{ current.errors.length > 0 ? 'Cannot use' : 'Change ' + row.label + ' to' }}
                                                     {{ shown(current.combo) }}{{ current.errors.length > 0 ? '' : '?' }}
                                                 </span>
