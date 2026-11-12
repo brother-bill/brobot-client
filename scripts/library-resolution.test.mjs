@@ -66,11 +66,16 @@ test('effective configs resolve consumed libraries to source, even with stale co
 test('consumer graph and desktop boundaries remain deliberate', () => {
     if (!desktop) return;
     assert.equal(pkg.dependencies['@singularity/contracts'], undefined);
+    // ngx-ui imports @singularity/ngx-utils, which imports
+    // @singularity/contracts/analytics-events: the renderer configs map both
+    // so the transitive graph resolves to source, while this app itself still
+    // declares and imports neither.
+    const transitive = ['@singularity/ngx-utils', '@singularity/contracts/analytics-events'];
     for (const name of configs.filter(name => name !== 'tsconfig.electron.json')) {
         assert.deepEqual(Object.keys(config(name).options.paths).sort(),
             (name === 'tsconfig.spec.json'
-                ? ['@brobot-client/shared', '@singularity/ngx-ui']
-                : ['@brobot-client/shared', '@singularity/ngx-ui', '@singularity/ngx-ui/styles']).sort());
+                ? ['@brobot-client/shared', '@singularity/ngx-ui', ...transitive]
+                : ['@brobot-client/shared', '@singularity/ngx-ui', '@singularity/ngx-ui/styles', ...transitive]).sort());
     }
     const electron = config('tsconfig.electron.json');
     assert.deepEqual(Object.keys(electron.options.paths), ['@brobot-client/shared']);
@@ -88,7 +93,11 @@ test('Turbo orders the declared library builds and retains application output la
     const build = tasks.find(task => task.taskId === `${pkg.name}#build`);
     assert.ok(build.dependencies.includes('@singularity/ngx-ui#build'));
     if (desktop) {
-        assert.ok(!tasks.some(task => task.package === '@singularity/contracts'));
+        // contracts may enter the graph only through ngx-utils (ngx-ui's
+        // dependency): nothing in this app, nor ngx-ui itself, depends on it.
+        const contracts = '@singularity/contracts#build';
+        assert.deepEqual(tasks.filter(task => task.dependencies.includes(contracts)).map(task => task.taskId)
+            .filter(id => id !== '@singularity/ngx-utils#build'), []);
     } else {
         for (const dependency of ['contracts', 'ngx-auth']) {
             assert.ok(build.dependencies.includes(`@singularity/${dependency}#build`));
