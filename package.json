@@ -18,7 +18,7 @@
         "lint": "eslint .",
         "test:library-resolution": "node --test scripts/library-resolution.test.mjs",
         "test": "node ../../scripts/check-library-freshness.mjs --consumer apps/brobot-client --tsconfig tsconfig.spec.json && pnpm run test:library-resolution && ng test --watch=false",
-        "typecheck": "node ../../scripts/check-library-freshness.mjs --consumer apps/brobot-client --tsconfig tsconfig.app.json && tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.electron.json && tsc --noEmit -p tsconfig.spec.json && tsc --noEmit -p tsconfig.editor.json",
+        "typecheck": "node ../../scripts/check-library-freshness.mjs --generated-only && tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.electron.json && tsc --noEmit -p tsconfig.spec.json && tsc --noEmit -p tsconfig.editor.json",
         "gen:theme": "node ../../libs/ngx-ui/scripts/generate-theme.mjs --config renderer/src/brand.config.json --out renderer/src/generated-colors.scss"
     },
     "dependencies": {
