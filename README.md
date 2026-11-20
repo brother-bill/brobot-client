@@ -274,6 +274,28 @@ BROBOT_SERVER_URL=ws://localhost:3000/api/ashketchum BROBOT_WS_SECRET=dev-secret
 (Ignored by the installed app.) Off Windows, host control is always the dry
 run — the window says so.
 
+### Secret scanning
+
+Every commit is checked by gitleaks, as in singularity (its
+`guidelines/workflow/secret-scanning.md` has the rules). `pnpm install` points
+this repository's git at [`.githooks/`](.githooks) (`core.hooksPath`, not under
+GitHub Actions), whose `pre-commit` runs `scan.sh staged`. Findings block the
+commit; with no gitleaks, or not the pinned version, the hook says so and lets
+the commit through. Install the pinned version once (Git Bash on Windows works
+too; it fetches the `windows_x64` zip and checks its sha256):
+
+```bash
+bash scripts/gitleaks/install.sh                       # into ~/.local/bin
+pnpm --filter @singularity/brobot-client run secrets:scan history
+pnpm --filter @singularity/brobot-client run secrets:scan range origin/main..HEAD
+```
+
+`scripts/gitleaks/{pin.env,install.sh,scan.sh}` and `.githooks/pre-commit` are
+singularity's, **copied byte for byte**: change them there and copy them back.
+`.gitleaks.toml` is the default rules with no exclusions, and
+`.gitleaks-baseline.json` is `[]` (no findings in this history, 2026-11-20). A
+false positive gets a `gitleaks:allow` comment on its line.
+
 ### Building the installer
 
 ```bash

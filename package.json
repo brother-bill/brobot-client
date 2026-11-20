@@ -16,10 +16,12 @@
         "dist": "pnpm run build && electron-builder --win --publish never && node scripts/release-manifest.mjs",
         "dist:linux": "bash scripts/dist-linux.sh",
         "lint": "eslint .",
+        "secrets:scan": "bash scripts/gitleaks/scan.sh",
         "test:library-resolution": "node --test scripts/library-resolution.test.mjs",
         "test": "node ../../scripts/check-library-freshness.mjs --consumer apps/brobot-client --tsconfig tsconfig.spec.json && pnpm run test:library-resolution && ng test --watch=false",
         "typecheck": "node ../../scripts/check-library-freshness.mjs --generated-only && tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.electron.json && tsc --noEmit -p tsconfig.spec.json && tsc --noEmit -p tsconfig.editor.json",
-        "gen:theme": "node ../../libs/ngx-ui/scripts/generate-theme.mjs --config renderer/src/brand.config.json --out renderer/src/generated-colors.scss"
+        "gen:theme": "node ../../libs/ngx-ui/scripts/generate-theme.mjs --config renderer/src/brand.config.json --out renderer/src/generated-colors.scss",
+        "postinstall": "node -e \"if (!process.env.GITHUB_ACTIONS && require('fs').existsSync('.git')) require('child_process').spawnSync('git', ['config', 'core.hooksPath', '.githooks'], { stdio: 'ignore' })\""
     },
     "dependencies": {
         "@angular/aria": "catalog:",
