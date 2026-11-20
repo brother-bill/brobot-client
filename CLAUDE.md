@@ -32,6 +32,11 @@ plus a pinned portable Wine), which singularity's dispatch-only
 `build-brobot-client.yml` runs. `pnpm run dist` is the same build on Windows.
 Neither runs on a push, and neither is in the gate.
 
+`pnpm install` sets `core.hooksPath .githooks` (the gitleaks pre-commit hook)
+outside GitHub Actions. The postinstall is an inline `node -e`, not a script
+file: pnpm runs it through cmd.exe on Windows, and singularity's Dockerfiles
+copy only this `package.json` before they install.
+
 ## Layout
 
 | Path | What |
@@ -48,6 +53,7 @@ Neither runs on a push, and neither is in the gate.
 | `renderer/` | The window: one page, four panels, a signals store |
 | `scripts/dist-linux.sh` | The Linux cross-build of the installer and the portable exe |
 | `scripts/release-manifest.mjs`, `scripts/publish-release.sh` | The update manifest written at build time, and publishing a build as a GitHub Release, then stamping it on the fleet board (best-effort; README, "Releasing an update") |
+| `scripts/gitleaks/`, `.githooks/pre-commit` | The gitleaks secret scan, **copied byte for byte from singularity** (change it there, copy it back). `.gitleaks.toml` and `.gitleaks-baseline.json` are this repository's own (README, "Secret scanning") |
 
 ## The things that will bite you
 

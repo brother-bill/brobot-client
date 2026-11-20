@@ -1,0 +1,7 @@
+# gitleaks configuration: the default rules, unchanged. Nothing is excluded
+# and no rule is disabled or loosened; a one-off false positive gets a
+# `gitleaks:allow` comment on its line instead. See singularity's
+# guidelines/workflow/secret-scanning.md.
+
+[extend]
+useDefault = true
