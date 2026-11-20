@@ -304,14 +304,19 @@ pnpm --filter @singularity/brobot-client run dist         # on Windows
 ```
 
 Either one produces `release/brobot-setup-<version>.exe` (NSIS installer) and
-`release/brobot-portable-<version>.exe`. **The usual way is neither:** dispatch
-singularity's **Build brobot-client installer** workflow
-(`gh workflow run build-brobot-client.yml --ref main`, staged in
-[`deploy/github/build-brobot-client.yml`](../../deploy/github/build-brobot-client.yml)
-until the owner copies it in). It runs `dist:linux` on the self-hosted CI
-runner and attaches both exes to the run for 7 days. It builds the
-brobot-client commit singularity records, so merge a change and let the
-pointer bump land before you dispatch.
+`release/brobot-portable-<version>.exe`, then `release/brobot-update.json`
+(the update manifest). **The usual way is neither:** dispatch singularity's
+**Build brobot-client installer** workflow
+(`gh workflow run build-brobot-client.yml --ref main`,
+[`.github/workflows/build-brobot-client.yml`](../../.github/workflows/build-brobot-client.yml)).
+It builds on Linux, on the CI runner (`CI_RUNNER`, else `ubuntu-latest`), not
+on anyone's desktop. A dispatch from `main` first bumps `apps/brobot-client` to
+this repository's `main` (a strict bump: if the pointer cannot get there the
+run fails and builds nothing), then runs `dist:linux` on exactly that commit.
+So merge, then dispatch; there is no need to wait for a pointer bump. The run
+writes `client-sha.txt` (the brobot-client commit it built) and attaches both
+exes, `brobot-update.json` and `client-sha.txt` to the run for 7 days. A
+dispatch from any other ref bumps nothing and builds what that ref records.
 
 `dist:linux` ([`scripts/dist-linux.sh`](scripts/dist-linux.sh)) needs no root
 and no container. electron-builder runs the NSIS installer once to write its
@@ -324,7 +329,8 @@ What runs on every change is everything that can break on any OS:
 `pnpm run build` (esbuild main/preload + `ng build`, part of the root
 `pnpm run build`), and lint, the three typechecks and the unit tests, which the
 submodule pointer-bump gate (`scripts/gate-bumped-submodule.sh`) runs before
-recording a new commit of this repository. Nothing compiles the PowerShell
+recording a new commit of this repository; singularity's `verify.yml` runs
+the three typechecks too (`Typecheck brobot-client`). Nothing compiles the PowerShell
 shim's C# except Windows itself, so install a new build on a Windows PC before
 handing it over. `pnpm run package` builds the unpacked app in
 `release/win-unpacked/` for a quick look without the installer.
