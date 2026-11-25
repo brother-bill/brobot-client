@@ -11,8 +11,8 @@
         "lib": ["es2023", "dom", "dom.iterable"],
         "baseUrl": "../../",
         "paths": {
-            "@singularity/ngx-ui": ["libs/ngx-ui/src/index.ts"],
-            "@singularity/ngx-utils": ["libs/ngx-utils/src/index.ts"],
+            "@singularity/ngx-ui": ["libs/kit/ngx-ui/src/index.ts"],
+            "@singularity/ngx-utils": ["libs/kit/ngx-utils/src/index.ts"],
             "@singularity/contracts/analytics-events": ["libs/contracts/src/analytics-events.ts"],
             "@brobot-client/shared": ["apps/brobot-client/shared/index.ts"]
         }
